@@ -1,6 +1,7 @@
 """Kongo - live system stats for the host, pushed to the browser over a WebSocket."""
 
 import asyncio
+import hashlib
 import ipaddress
 import json
 import mimetypes
@@ -15,7 +16,7 @@ from pathlib import Path
 
 import psutil
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -24,6 +25,9 @@ from . import admin, images, updates
 INTERVAL = 1.0
 HISTORY = 60
 STATIC_DIR = Path(__file__).parent / "static"
+# Changes with every new page: it busts the browser's cache of app.js and style.css, and an open page that
+# reconnects to a Kongo with another version reloads itself instead of running the old code
+VERSION = hashlib.sha256(b"".join((STATIC_DIR / f).read_bytes() for f in ("index.html", "app.js", "style.css"))).hexdigest()[:12]
 
 # Whole disks only; partitions (sda1) and loop/ram devices would double count
 DISK_RE = re.compile(r"^(sd[a-z]+|vd[a-z]+|hd[a-z]+|xvd[a-z]+|nvme\d+n\d+|mmcblk\d+)$")
@@ -724,8 +728,12 @@ app = FastAPI(title="Kongo", lifespan=lifespan)
 
 
 @app.get("/")
-async def index() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+async def index() -> HTMLResponse:
+    html = (STATIC_DIR / "index.html").read_text()
+    for name in ("app.js", "style.css"):
+        html = html.replace(f'"/static/{name}"', f'"/static/{name}?v={VERSION}"')
+    # always asked again, so a new Kongo's page is never taken from the cache
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/api/snapshot")
@@ -833,7 +841,7 @@ async def admin_job() -> JSONResponse:
 async def ws_endpoint(ws: WebSocket) -> None:
     await ws.accept()
     await ws.send_text(
-        json.dumps({"type": "init", "history": list(sampler.history)}, separators=(",", ":"))
+        json.dumps({"type": "init", "version": VERSION, "history": list(sampler.history)}, separators=(",", ":"))
     )
     sampler.clients.add(ws)
     try:

@@ -930,13 +930,26 @@ $("pause").addEventListener("click", (e) => {
 
 // ---------- connection ----------
 
+// Kongo's version when the page loaded; a reconnect to another version (Kongo was updated) reloads the page,
+// once no popup is open, so a running job's log or the restart view isn't cut off
+let pageVersion = null, reloadPending = false;
+function reloadIfNew(version) {
+  pageVersion ??= version;
+  if (version === pageVersion) return;
+  reloadPending = true;
+  if (!document.querySelector("dialog[open]")) location.reload();
+}
+for (const dlg of document.querySelectorAll("dialog")) {
+  dlg.addEventListener("close", () => { if (reloadPending && !document.querySelector("dialog[open]")) location.reload(); });
+}
+
 function connect() {
   const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
   const dot = $("status-dot");
   ws.onopen = () => { dot.classList.add("on"); dot.title = "Live"; };
   ws.onmessage = (e) => {
     const msg = JSON.parse(e.data);
-    if (msg.type === "init") { history = msg.history; return; }
+    if (msg.type === "init") { history = msg.history; reloadIfNew(msg.version); return; }
     history.push(msg.metrics);
     if (history.length > HISTORY) history = history.slice(-HISTORY);
     renderMeters(msg);
