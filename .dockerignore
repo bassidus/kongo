@@ -1,0 +1,5 @@
+# Only requirements.txt and app/ go into the image; keep everything else out of the build context
+*
+!requirements.txt
+!app/
+**/__pycache__

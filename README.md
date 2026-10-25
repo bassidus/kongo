@@ -15,16 +15,18 @@ A live stats page for a Linux server, in the style of Windows Task Manager. It r
 
 ## Run it
 
-You need a Linux host with Docker and Docker Compose.
+You need a Linux host with Docker and Docker Compose. The image [`bassidus/kongo`](https://hub.docker.com/r/bassidus/kongo) is built for amd64 and arm64.
 
 ```sh
-git clone https://github.com/bassidus/kongo.git
-cd kongo
+mkdir kongo && cd kongo
+curl -fsSLO https://raw.githubusercontent.com/bassidus/kongo/main/docker-compose.yml
 echo "TZ=Europe/London" > .env   # optional, your timezone (default UTC)
-docker compose up -d --build
+docker compose up -d
 ```
 
-Then open `http://<your-server>:8090`.
+Then open `http://<your-server>:8090`. To update it later, run `docker compose pull && docker compose up -d`.
+
+To build it yourself instead, clone the repo and run `docker compose up -d --build`.
 
 ### Settings
 

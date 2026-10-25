@@ -1,5 +1,9 @@
 FROM python:3.12-slim
 
+LABEL org.opencontainers.image.title="Kongo" \
+      org.opencontainers.image.description="Live stats for a Linux server, in the style of Windows Task Manager" \
+      org.opencontainers.image.source="https://github.com/bassidus/kongo"
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PORT=8090

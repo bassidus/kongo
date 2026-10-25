@@ -1,5 +1,7 @@
 services:
   kongo:
+    # The published image; `build: .` builds it from this folder instead (docker compose up -d --build)
+    image: bassidus/kongo:latest
     build: .
     container_name: kongo
     restart: unless-stopped
