@@ -55,6 +55,27 @@ def read_text(path: str | Path) -> str:
         return ""
 
 
+# What firmware writes into DMI fields it didn't fill in; such a field counts as empty
+DMI_PLACEHOLDER_RE = re.compile(
+    r"^(system (manufacturer|product name|version)|to be filled by o\.?e\.?m\.?|default string|o\.?e\.?m\.?|"
+    r"not (applicable|specified|available)|none|unknown|type1productconfigid|x\.x+)$", re.I)
+# Long company names, so the Machine tile fits: "ASUSTeK COMPUTER INC." -> "ASUS"
+VENDOR_NAMES = {"asustek": "ASUS", "micro-star": "MSI", "hewlett-packard": "HP", "gigabyte": "Gigabyte", "lenovo": "Lenovo"}
+VENDOR_SUFFIX_RE = re.compile(r"[,.]?\s+(inc|corp(oration)?|co|ltd|llc|gmbh|computer|technology|international)\b\.?", re.I)
+
+
+def dmi(name: str) -> str:
+    value = read_text(f"/sys/class/dmi/id/{name}")
+    return "" if DMI_PLACEHOLDER_RE.match(value) else value
+
+
+def short_vendor(vendor: str) -> str:
+    for key, short in VENDOR_NAMES.items():
+        if vendor.lower().startswith(key):
+            return short
+    return VENDOR_SUFFIX_RE.split(vendor, 1)[0].strip(" ,.") or vendor
+
+
 def physical_ifaces() -> list[str]:
     wanted = [i.strip() for i in os.environ.get("NET_IFACES", "").split(",") if i.strip()]
     if wanted:
@@ -276,12 +297,16 @@ class Sampler:
             tz = os.readlink("/proc/1/root/etc/localtime").split("zoneinfo/", 1)[-1]
         except OSError:
             tz = os.environ.get("TZ", "")
-        board = read_text("/sys/class/dmi/id/board_name") or read_text("/sys/class/dmi/id/product_name")
+        # The board names the machine best; prebuilt PCs without one fall back to the product. A vendor that
+        # is only in the board fields (sys_vendor left as "System manufacturer") is taken from there
+        board = dmi("board_name") or dmi("product_name")
+        vendor = short_vendor(dmi("sys_vendor") or dmi("board_vendor"))
         return {
             "os": release.get("PRETTY_NAME", "Linux").strip('"'),
             "kernel": os.uname().release,
             "arch": os.uname().machine,
-            "machine": " ".join(x for x in (read_text("/sys/class/dmi/id/sys_vendor"), board) if x),
+            # no "Lenovo Lenovo ThinkCentre" when the product name already starts with the vendor
+            "machine": board if vendor and board.startswith(vendor) else " ".join(x for x in (vendor, board) if x),
             "cpu_model": model,
             "cpu_base": re.sub(r"(\d)([GM]Hz)", r"\1 \2", base.strip()),
             "cores": psutil.cpu_count(logical=False) or self.ncpu,
