@@ -199,6 +199,8 @@ h2 { font-size: 13px; color: var(--ink-2); font-weight: 600; letter-spacing: 0.0
 }
 .dialog-foot p { margin: 0; }
 .dialog-foot p:empty { display: none; }
+.dialog-foot p.done { color: color-mix(in srgb, var(--good) 70%, var(--ink)); font-weight: 500; }
+.dialog-foot p.failed { color: color-mix(in srgb, var(--critical) 70%, var(--ink)); font-weight: 500; }
 .dialog-foot code { padding: 1px 6px; border-radius: 6px; background: var(--surface-2); color: var(--ink-2); }
 .dialog-foot .btn { margin-left: 0; }
 .btn.primary { background: var(--accent); border-color: transparent; color: #fff; }

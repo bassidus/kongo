@@ -340,6 +340,7 @@ async function loadUpdates(u) {
   adminEnabled = u.actions;
   adminUsers = u.admin_users || [];
   updatesCount = n;
+  updatesReboot = u.reboot;
   updatesChecked = u.checked;
   imagesChecked = u.images?.checked ?? Infinity;
   $("admin-actions").hidden = !u.actions || !$("admin-form").hidden;
@@ -434,8 +435,8 @@ const ADMIN_ACTIONS = {
   containers: { title: "Update the containers as", submit: "Update" },
 };
 const JOB_TEXT = {
-  packages: { title: "Install updates", running: "Installing updates…", done: "Updates installed", failed: "Installing failed" },
-  containers: { title: "Update containers", running: "Updating containers…", done: "Containers updated", failed: "Updating failed" },
+  packages: { title: "Install updates", running: "Installing updates…", done: "Updates installed", failed: "Installing failed", end: "Done – the updates are installed." },
+  containers: { title: "Update containers", running: "Updating containers…", done: "Containers updated", failed: "Updating failed", end: "Done – the containers are updated." },
 };
 
 // The password form and the job's log are shared by both popups: they move into the one that is open
@@ -453,7 +454,7 @@ let adminEnabled = false, adminAction = null, jobTimer = null, restarting = fals
 // restartAt: when Restart was confirmed; restartedBack: the server came back while the popup was open
 let restartAt = 0, restartedBack = false, restartTimer = null;
 // imagesChecked: when the containers in the updates popup were checked (Infinity without Docker)
-let updatesCount = 0, updatesChecked = 0, imagesChecked = Infinity, checking = false, loadSeq = 0;
+let updatesCount = 0, updatesReboot = null, updatesChecked = 0, imagesChecked = Infinity, checking = false, loadSeq = 0;
 // the users on the server who may do this; with just one, only the password is asked for
 let adminUsers = [];
 const ADMIN_USER_KEY = "kongo-admin-user";
@@ -584,6 +585,14 @@ async function pollJob() {
   else if (wait === "list" && !jobView) jobTimer = setTimeout(reloadActive, 2000);
 }
 
+// The log follows its end until the user scrolls up. A flag rather than the scroll position, because the browser
+// resets that when the log is hidden or moved to the other popup
+let logFollow = true, logStarted = null;
+$("job-log").addEventListener("scroll", (e) => {
+  const pre = e.target;
+  logFollow = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 8;
+});
+
 // What to wait for: "job" while it runs, "list" until the server has rechecked the list after it
 function renderJob(j) {
   const box = $("job");
@@ -601,7 +610,14 @@ function renderJob(j) {
   const h2 = activeDlg.querySelector(".toolbar h2");
   h2.textContent = jobView ? text.title : h2.dataset.title;
   const hint = activeDlg.querySelector(".dialog-foot p");
-  if (jobView) hint.textContent = running ? "It runs on the server, so you can close this window and come back." : "";
+  // the end of a run is said down here too: the status line above the log is out of sight after a long run
+  const ended = jobView && j && !running;
+  hint.classList.toggle("done", ended && j.state === "done");
+  hint.classList.toggle("failed", ended && j.state !== "done");
+  if (jobView) hint.textContent = running ? "It runs on the server, so you can close this window and come back."
+    : !j ? ""
+    : j.state === "done" ? text.end + (lastJobKind === "packages" && updatesReboot ? " Restart the server to finish." : "")
+    : `${text.failed} (exit code ${j.exit}) – the log above says why.`;
   else if (adminEnabled) hint.textContent = settling ? "Checking what is left after the run…" : docker ? dockerHint : "";
   const nothing = { upgrade: !updatesCount && "Nothing to install", containers: !dockerPending.length && "Nothing to update" };
   for (const b of dlgActions().querySelectorAll("button")) {
@@ -614,15 +630,17 @@ function renderJob(j) {
   // the per-container Update buttons in both popups
   for (const b of document.querySelectorAll("#docker-body button[data-update], #ctr-body button[data-update]")) b.disabled = running || settling || (!docker && checking);
   const wait = running ? "job" : settling ? "list" : null;
+  const shown = !box.hidden;
   box.hidden = !jobView || !j;
   if (box.hidden) return wait;
+  // a new run, or the log just came into view: follow its end again
+  if (!shown || j.started !== logStarted) { logFollow = true; logStarted = j.started; }
   box.className = "job " + j.state;
   $("job-state").textContent = running ? text.running : j.state === "done" ? text.done : `${text.failed} (exit code ${j.exit})`;
   $("job-time").textContent = j.started ? "started " + new Date(j.started * 1000).toLocaleTimeString("sv-SE", { timeStyle: "short" }) : "";
   const pre = $("job-log");
-  const atEnd = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 8;
   pre.textContent = j.log.join("\n") || "Starting…";
-  if (atEnd) pre.scrollTop = pre.scrollHeight;
+  if (logFollow) pre.scrollTop = pre.scrollHeight;
   return wait;
 }
 
