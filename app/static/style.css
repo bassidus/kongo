@@ -278,6 +278,7 @@ a.btn { display: inline-block; text-decoration: none; }
 }
 .ctr-section h3 span { font-weight: 400; text-transform: none; letter-spacing: 0; }
 .table-hint { margin: 0; padding: 10px 12px 14px; font-size: 12px; }
+.table-hint:empty { display: none; }
 .table-hint code { padding: 1px 6px; border-radius: 6px; background: var(--surface-2); color: var(--ink-2); }
 tr.dim-row td { color: var(--muted); }
 .w-src { width: 160px; }
@@ -661,10 +662,10 @@ tbody tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
   table.updates td:nth-child(4) { font-size: 12px; }
   table.updates td[colspan] { grid-column: 1 / -1; }
   table.updates.ctr td:nth-child(3)::before { content: none; }
-  /* the Docker popup: Open and Update get a row of their own under the status */
+  /* Open and Update get a row of their own under the status */
   table.updates.docker td.web { grid-column: 1; grid-row: 4; padding: 6px 0 0; text-align: left; }
-  table.updates.docker td.act { grid-column: 2; grid-row: 4; padding: 6px 0 0; }
-  table.updates.docker td.act:empty, table.updates.docker td.web:empty { display: none; }
+  table.updates td.act { grid-column: 2; grid-row: 4; padding: 6px 0 0; }
+  table.updates td.act:empty, table.updates.docker td.web:empty { display: none; }
   .admin-form strong { flex-basis: 100%; }
   .admin-form input, .admin-form select { flex-basis: 100%; max-width: none; }
   .admin-form .btn:first-of-type { margin-left: auto; }

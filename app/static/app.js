@@ -341,6 +341,7 @@ async function loadUpdates(u) {
   adminUsers = u.admin_users || [];
   updatesCount = n;
   updatesChecked = u.checked;
+  imagesChecked = u.images?.checked ?? Infinity;
   $("admin-actions").hidden = !u.actions || !$("admin-form").hidden;
   $("admin-actions").querySelector('[data-action="restart"]').classList.toggle("attn", !!u.reboot);
   if (u.actions) pollJob();
@@ -383,9 +384,10 @@ function renderContainerUpdates(images, actions) {
   const list = (images?.containers || []).filter((c) => c.status in CTR_STATUS);
   $("ctr-section").hidden = !list.length;
   if (!list.length) return;
-  $("ctr-hint").innerHTML = actions
-    ? "Update them with the Docker tile in the System panel."
-    : "Update a container with <code>docker compose pull &amp;&amp; docker compose up -d</code> in its project's folder.";
+  const byHand = list.filter((c) => c.status !== "error" && !updatable(c)).length;
+  $("ctr-hint").innerHTML = !actions
+    ? "Update a container with <code>docker compose pull &amp;&amp; docker compose up -d</code> in its project's folder."
+    : byHand ? `${byHand} of them ${byHand === 1 ? "was" : "were"} not started with docker compose, so update ${byHand === 1 ? "it" : "them"} by hand.` : "";
   $("ctr-note").textContent = images.registry_checked ? `registries checked ${fmtAgo(Date.now() / 1000 - images.registry_checked)}` : "";
   $("ctr-body").innerHTML = list.map((c) => {
     const [label, title] = CTR_STATUS[c.status];
@@ -395,9 +397,17 @@ function renderContainerUpdates(images, actions) {
       <td class="dim" title="${esc(c.image)}">${esc(c.image)}</td>
       <td title="${esc(c.detail ? "Could not check: " + c.detail : title)}">${esc(label)}</td>
       <td class="dim" title="${esc(c.dir)}">${esc(c.project) || "—"}</td>
+      <td class="act">${actions && updatable(c) ? `<button class="btn small" type="button" data-update="${esc(c.name)}">Update</button>` : ""}</td>
     </tr>`;
   }).join("");
 }
+
+$("ctr-body").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-update]");
+  if (!b || b.disabled) return;
+  adminTarget = b.dataset.update;
+  openAdminForm("containers");
+});
 
 updatesBtn.addEventListener("click", () => {
   jobView = false;
@@ -442,7 +452,8 @@ const reloadActive = () => (activeDlg === dockerDlg ? loadContainers() : loadUpd
 let adminEnabled = false, adminAction = null, jobTimer = null, restarting = false, jobView = false;
 // restartAt: when Restart was confirmed; restartedBack: the server came back while the popup was open
 let restartAt = 0, restartedBack = false, restartTimer = null;
-let updatesCount = 0, updatesChecked = 0, checking = false, loadSeq = 0;
+// imagesChecked: when the containers in the updates popup were checked (Infinity without Docker)
+let updatesCount = 0, updatesChecked = 0, imagesChecked = Infinity, checking = false, loadSeq = 0;
 // the users on the server who may do this; with just one, only the password is asked for
 let adminUsers = [];
 const ADMIN_USER_KEY = "kongo-admin-user";
@@ -583,7 +594,8 @@ function renderJob(j) {
   const text = JOB_TEXT[(lastJobKind = j?.kind || lastJobKind)];
   const docker = activeDlg === dockerDlg;
   const running = j?.state === "running";
-  const settling = j?.state === "done" && (docker ? containersChecked : updatesChecked) < j.finished;
+  // the updates popup shows both packages and containers, so it waits for both rechecks
+  const settling = j?.state === "done" && (docker ? containersChecked : Math.min(updatesChecked, imagesChecked)) < j.finished;
   if (running) jobView = true;
   activeDlg.classList.toggle("job-mode", jobView);
   const h2 = activeDlg.querySelector(".toolbar h2");
@@ -599,8 +611,8 @@ function renderJob(j) {
     b.disabled = !jobView && (running || settling || (!docker && checking) || !!nothing[a]);
     if (main) b.title = b.disabled && !running && !settling ? nothing[a] || "" : "";
   }
-  // the Docker popup's Update buttons, one per container
-  for (const b of $("docker-body").querySelectorAll("button[data-update]")) b.disabled = running || settling;
+  // the per-container Update buttons in both popups
+  for (const b of document.querySelectorAll("#docker-body button[data-update], #ctr-body button[data-update]")) b.disabled = running || settling || (!docker && checking);
   const wait = running ? "job" : settling ? "list" : null;
   box.hidden = !jobView || !j;
   if (box.hidden) return wait;
