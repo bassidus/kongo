@@ -165,15 +165,18 @@
   <dialog id="updates-dialog" class="dialog" aria-labelledby="updates-title">
     <form method="dialog" class="toolbar">
       <span class="icon" style="--series: var(--c-disk-w)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5v11M7.5 10l4.5 4.5 4.5-4.5"/><path d="M4 16.5v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></span>
-      <h2 id="updates-title">Available updates</h2>
+      <h2 id="updates-title" data-title="Available updates">Available updates</h2>
       <span class="muted" id="updates-note"></span>
       <button class="btn" type="submit">Close</button>
     </form>
     <div class="dialog-note" id="updates-reboot" hidden></div>
-    <section class="job" id="job" hidden>
-      <div class="job-head"><strong id="job-state"></strong><span class="muted" id="job-time"></span></div>
-      <pre id="job-log"></pre>
-    </section>
+    <!-- the job's log and the password form are shared by both popups and move into the open one -->
+    <div class="job-slot">
+      <section class="job" id="job" hidden>
+        <div class="job-head"><strong id="job-state"></strong><span class="muted" id="job-time"></span></div>
+        <pre id="job-log"></pre>
+      </section>
+    </div>
     <div class="table-wrap">
       <table class="updates">
         <colgroup><col><col class="w-ver"><col class="w-ver"><col class="w-src"></colgroup>
@@ -187,6 +190,22 @@
         </thead>
         <tbody id="updates-body"></tbody>
       </table>
+      <section class="ctr-section" id="ctr-section" hidden>
+        <h3>Docker containers <span id="ctr-note"></span></h3>
+        <table class="updates ctr">
+          <colgroup><col class="w-ctr"><col><col class="w-ctr-status"><col class="w-src"></colgroup>
+          <thead>
+            <tr>
+              <th>Container</th>
+              <th>Image</th>
+              <th>Status</th>
+              <th>Project</th>
+            </tr>
+          </thead>
+          <tbody id="ctr-body"></tbody>
+        </table>
+        <p class="table-hint muted" id="ctr-hint"></p>
+      </section>
     </div>
     <div class="dialog-foot">
       <p class="muted" id="updates-hint"></p>
@@ -203,6 +222,38 @@
         <button class="btn primary" type="submit" id="admin-submit"></button>
         <span class="admin-error" id="admin-error" role="alert"></span>
       </form>
+    </div>
+  </dialog>
+
+  <dialog id="docker-dialog" class="dialog" aria-labelledby="docker-title">
+    <form method="dialog" class="toolbar">
+      <span class="icon" style="--series: var(--c-cpu)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/></svg></span>
+      <h2 id="docker-title" data-title="Docker containers">Docker containers</h2>
+      <span class="muted" id="docker-note"></span>
+      <button class="btn" type="submit">Close</button>
+    </form>
+    <div class="job-slot"></div>
+    <div class="table-wrap">
+      <table class="updates ctr docker">
+        <colgroup><col class="w-ctr"><col><col class="w-ctr-status"><col class="w-src"><col class="w-act"></colgroup>
+        <thead>
+          <tr>
+            <th>Container</th>
+            <th>Image</th>
+            <th>Update</th>
+            <th>Project</th>
+            <th><span class="sr-only">Action</span></th>
+          </tr>
+        </thead>
+        <tbody id="docker-body"></tbody>
+      </table>
+    </div>
+    <div class="dialog-foot">
+      <p class="muted" id="docker-hint"></p>
+      <div class="admin-actions" id="docker-actions" hidden>
+        <button class="btn" type="button" data-action="list" hidden>Back to the list</button>
+        <button class="btn primary" type="button" data-action="containers">Update all</button>
+      </div>
     </div>
   </dialog>
 

@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import admin, updates
+from . import admin, images, updates
 
 INTERVAL = 1.0
 HISTORY = 60
@@ -100,6 +100,7 @@ class Sampler:
         self._sys_t = 0.0
         self.public_ip: str | None = None
         self.updates: dict | None = None
+        self.images: dict | None = None
         psutil.cpu_percent(percpu=True)
 
     @staticmethod
@@ -346,14 +347,17 @@ class Sampler:
         }
 
     def _updates_summary(self) -> dict | None:
-        # The package list itself is fetched from /api/updates when the popup opens
-        u = self.updates
-        if u is None:
+        # The lists themselves are fetched from /api/updates when the popup opens
+        u, i = self.updates, self.images
+        if u is None and i is None:
             return None
+        packages = u["packages"] if u else []
         return {
-            "count": len(u["packages"]),
-            "security": sum(p["security"] for p in u["packages"]),
-            "reboot": bool(u["reboot"]),
+            "count": len(packages),
+            "security": sum(p["security"] for p in packages),
+            "reboot": bool(u and u["reboot"]),
+            "containers": sum(c["status"] in ("pull", "recreate") for c in i["containers"]) if i else 0,
+            "images": i is not None,
         }
 
     def _collect_procs(self) -> tuple[list[dict], dict[str, dict]]:
@@ -594,6 +598,7 @@ async def public_ip_loop() -> None:
 
 
 updates_wake = asyncio.Event()
+images_wake = asyncio.Event()
 # Popups waiting for a fresh check (POST /api/updates/check); one refresh serves them all
 updates_waiters: list[asyncio.Future] = []
 
@@ -651,6 +656,30 @@ async def updates_loop(mgr: updates.Manager) -> None:
         updates_wake.clear()
 
 
+async def images_loop() -> None:
+    # Docker is asked every minute (local, cheap), the registries every images.REFRESH (cached in the checker)
+    while True:
+        busy = False
+        if admin.available():
+            try:
+                busy = await asyncio.to_thread(admin.running)
+            except Exception:
+                pass
+        if busy:
+            # an Update containers run: look again as soon as it ends
+            await asyncio.sleep(UPDATES_BUSY_POLL)
+            continue
+        try:
+            sampler.images = await asyncio.to_thread(images.checker.check)
+        except Exception as e:
+            print(f"container updates: {e}")
+        try:
+            await asyncio.wait_for(images_wake.wait(), UPDATES_POLL)
+        except asyncio.TimeoutError:
+            pass
+        images_wake.clear()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     tasks = [asyncio.create_task(sampler.run())]
@@ -659,6 +688,8 @@ async def lifespan(app: FastAPI):
     # apt, dnf, zypper, pacman or apk; with none of them the badge stays hidden
     if UPDATES_MGR:
         tasks.append(asyncio.create_task(updates_loop(UPDATES_MGR)))
+    if images.REFRESH and images.socket_path():
+        tasks.append(asyncio.create_task(images_loop()))
     yield
     for task in tasks:
         task.cancel()
@@ -696,16 +727,31 @@ async def updates_check() -> JSONResponse:
 
 @app.get("/api/updates")
 async def updates_list() -> JSONResponse:
-    if sampler.updates is None:
+    if sampler.updates is None and sampler.images is None:
         return JSONResponse(None)
-    users = await asyncio.to_thread(admin.admin_users) if admin.available() and UPDATES_MGR.install else []
+    base = sampler.updates or {"manager": None, "upgrade": "", "packages": [], "lists_updated": 0, "checked": 0, "reboot": None}
+    users = await asyncio.to_thread(admin.admin_users) if UPDATES_MGR and admin.available() and UPDATES_MGR.install else []
     # without a user who can log in, the buttons would be no use
-    return JSONResponse({**sampler.updates, "actions": bool(users), "admin_users": users})
+    return JSONResponse({**base, "images": sampler.images, "actions": bool(users), "admin_users": users})
+
+
+@app.get("/api/containers")
+async def containers_list() -> JSONResponse:
+    # Every running container and whether its image has a newer version (the Docker tile's popup)
+    if sampler.images is None:
+        return JSONResponse(None)
+    users = await asyncio.to_thread(admin.admin_users) if admin.available() else []
+    return JSONResponse({**sampler.images, "actions": bool(users), "admin_users": users})
 
 
 class Credentials(BaseModel):
     user: str
     password: str
+
+
+class ContainerCredentials(Credentials):
+    # the containers the popup showed as updatable, so nothing the user didn't see gets recreated
+    names: list[str]
 
 
 async def authorize(c: Credentials) -> None:
@@ -730,6 +776,17 @@ async def admin_upgrade(c: Credentials) -> JSONResponse:
     await admin_action(admin.start_upgrade, UPDATES_MGR.install)
     updates_wake.set()
     return JSONResponse({"ok": True})
+
+
+@app.post("/api/admin/containers")
+async def admin_containers(c: ContainerCredentials) -> JSONResponse:
+    await authorize(c)
+    rows = [r for r in (sampler.images or {}).get("containers", []) if r["name"] in c.names and images.updatable(r)]
+    if not rows:
+        raise HTTPException(409, "There is nothing to update.")
+    await admin_action(admin.start_containers, images.update_script(rows))
+    images_wake.set()
+    return JSONResponse({"ok": True, "containers": [r["name"] for r in rows]})
 
 
 @app.post("/api/admin/restart")

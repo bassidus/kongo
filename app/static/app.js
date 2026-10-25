@@ -253,7 +253,7 @@ const SYS_ICONS = {
   power: '<path d="M12 3v8"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/>',
 };
 
-function renderSystem(s) {
+function renderSystem(s, upd) {
   const temp = s.cpu_temp;
   // [label, value, sub, icon, colour token, extra class]; colours follow the meters where a tile matches one
   const tiles = [
@@ -270,11 +270,14 @@ function renderSystem(s) {
     ["Network", s.nics.map((n) => n.speed > 0 ? `${n.name} · ${fmtSpeed(n.speed)}` : n.name).join(", ") || "—", s.nics.map((n) => n.mac).join(", "), "net", "--c-net-in"],
     ["Private IP", s.private_ips.join(", ") || "—", s.gateway ? `Gateway ${s.gateway}` : "", "home", "--c-net-in"],
     ["Public IP", s.public_ip || (s.public_ip_enabled ? "Looking up…" : "Off"), s.public_ip_enabled ? "Checked every 30 min" : "", "globe", "--c-net-out"],
-    ["Docker", `${s.containers} containers running`, "", "box", "--c-cpu"],
+    // clickable when the container check runs: it opens the list of containers
+    ["Docker", `${s.containers} containers running`,
+      upd?.images ? (upd.containers ? `${upd.containers} update${upd.containers === 1 ? "" : "s"} available` : "All images up to date") : "",
+      "box", "--c-cpu", upd?.images ? "clickable" + (upd.containers ? " warn" : "") : ""],
     ["Booted", new Date(s.boot * 1000).toLocaleString("sv-SE", { dateStyle: "short", timeStyle: "short" }), fmtAgo(Date.now() / 1000 - s.boot), "power", "--c-disk-w"],
   ];
   $("sysinfo").innerHTML = tiles.map(([label, value, sub, icon, color, cls]) => `
-    <div class="${cls || ""}" style="--series: var(${color})">
+    <div class="${cls || ""}" style="--series: var(${color})" data-tile="${icon}"${cls?.includes("clickable") ? ' role="button" tabindex="0"' : ""}>
       <dt><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${SYS_ICONS[icon]}</svg></span>${esc(label)}</dt>
       <dd title="${esc(value)}">${esc(value)}</dd>
       ${sub ? `<dd class="sub2" title="${esc(sub)}">${esc(sub)}</dd>` : ""}
@@ -288,16 +291,21 @@ const updatesDlg = $("updates-dialog");
 let updatesKey = "";
 
 function renderUpdatesBadge(u) {
-  updatesBtn.hidden = !u || (!u.count && !u.reboot);
+  const ctr = u?.containers || 0;
+  updatesBtn.hidden = !u || (!u.count && !ctr && !u.reboot);
   if (updatesBtn.hidden) return;
-  const parts = u.count ? [`${u.count} update${u.count === 1 ? "" : "s"}`] : ["Restart required"];
+  const s = (n) => (n === 1 ? "" : "s");
+  const parts = [];
+  if (u.count) parts.push(`${u.count} update${s(u.count)}`);
   if (u.security) parts.push(`${u.security} security`);
-  $("updates-text").textContent = parts.join(" · ");
+  if (ctr) parts.push(u.count ? `${ctr} container${s(ctr)}` : `${ctr} container update${s(ctr)}`);
+  $("updates-text").textContent = (parts.length ? parts : ["Restart required"]).join(" · ");
   updatesBtn.classList.toggle("crit", u.security > 0);
-  updatesBtn.title = !u.count ? "A recent update requires a restart"
-    : u.reboot ? "A recent update requires a restart · click to see the packages" : "Click to see the packages";
+  const what = ctr ? "click to see the updates" : "click to see the packages";
+  updatesBtn.title = !u.count && !ctr ? "A recent update requires a restart"
+    : u.reboot ? `A recent update requires a restart · ${what}` : what[0].toUpperCase() + what.slice(1);
   // the server's list changed while the popup is open: fetch it again
-  const key = `${u.count}/${u.security}/${u.reboot}`;
+  const key = `${u.count}/${u.security}/${u.reboot}/${ctr}`;
   if (updatesDlg.open && key !== updatesKey) loadUpdates();
   updatesKey = key;
 }
@@ -317,9 +325,12 @@ async function loadUpdates(u) {
     return;
   }
   const n = u.packages.length, sec = u.packages.filter((p) => p.security).length;
+  const ctrs = (u.images?.containers || []).filter((c) => c.status in CTR_STATUS);
+  const ctrPending = ctrs.filter((c) => c.status !== "error").length;
   $("updates-note").textContent = [
     `${n} package${n === 1 ? "" : "s"}`,
     sec && `${sec} security`,
+    ctrPending && `${ctrPending} container${ctrPending === 1 ? "" : "s"}`,
     u.manager,
     checking ? "checking for new updates…" : u.lists_updated && `lists updated ${fmtAgo(Date.now() / 1000 - u.lists_updated)}`,
   ].filter(Boolean).join(" · ");
@@ -345,7 +356,8 @@ async function loadUpdates(u) {
       <td class="dim" title="${esc(p.old)}">${esc(p.old)}</td>
       <td title="${esc(p.new)}">${esc(p.new)}</td>
       <td class="dim" title="${esc(p.source)}">${esc(p.source) || "—"}</td>
-    </tr>`).join("") : `<tr><td colspan="4" class="dim">Everything is up to date.</td></tr>`;
+    </tr>`).join("") : `<tr><td colspan="4" class="dim">${ctrs.length ? "No package updates." : "Everything is up to date."}</td></tr>`;
+  renderContainerUpdates(u.images, u.actions);
 }
 
 // Show the list at once, then ask the server for fresh lists and a new check, so a restart doesn't miss updates
@@ -361,8 +373,35 @@ async function checkUpdates() {
   loadUpdates(u);
 }
 
+const CTR_STATUS = {
+  pull: ["Newer image available", "The registry has a newer image for this tag"],
+  recreate: ["Newer image pulled – recreate", "A newer image is already pulled, but the container still runs the old one"],
+  error: ["Could not check", ""],
+};
+
+function renderContainerUpdates(images, actions) {
+  const list = (images?.containers || []).filter((c) => c.status in CTR_STATUS);
+  $("ctr-section").hidden = !list.length;
+  if (!list.length) return;
+  $("ctr-hint").innerHTML = actions
+    ? "Update them with the Docker tile in the System panel."
+    : "Update a container with <code>docker compose pull &amp;&amp; docker compose up -d</code> in its project's folder.";
+  $("ctr-note").textContent = images.registry_checked ? `registries checked ${fmtAgo(Date.now() / 1000 - images.registry_checked)}` : "";
+  $("ctr-body").innerHTML = list.map((c) => {
+    const [label, title] = CTR_STATUS[c.status];
+    return `
+    <tr class="${c.status === "error" ? "dim-row" : ""}">
+      <td class="name" title="${esc(c.name)}">${esc(c.name)}</td>
+      <td class="dim" title="${esc(c.image)}">${esc(c.image)}</td>
+      <td title="${esc(c.detail ? "Could not check: " + c.detail : title)}">${esc(label)}</td>
+      <td class="dim" title="${esc(c.dir)}">${esc(c.project) || "—"}</td>
+    </tr>`;
+  }).join("");
+}
+
 updatesBtn.addEventListener("click", () => {
   jobView = false;
+  mountAdmin(updatesDlg);
   checkUpdates();
   updatesDlg.showModal();
 });
@@ -382,7 +421,23 @@ updatesDlg.addEventListener("close", () => {
 const ADMIN_ACTIONS = {
   upgrade: { title: "Install the updates as", submit: "Install" },
   restart: { title: "Restart the server as", submit: "Restart" },
+  containers: { title: "Update the containers as", submit: "Update" },
 };
+const JOB_TEXT = {
+  packages: { title: "Install updates", running: "Installing updates…", done: "Updates installed", failed: "Installing failed" },
+  containers: { title: "Update containers", running: "Updating containers…", done: "Containers updated", failed: "Updating failed" },
+};
+
+// The password form and the job's log are shared by both popups: they move into the one that is open
+// adminTarget: the container whose Update button was clicked; null = Update all
+let activeDlg = null, lastJobKind = "packages", adminTarget = null;
+function mountAdmin(dlg) {
+  activeDlg = dlg;
+  dlg.querySelector(".job-slot").append($("job"));
+  dlg.querySelector(".dialog-foot").append($("admin-form"));
+}
+const dlgActions = () => activeDlg.querySelector(".admin-actions");
+const reloadActive = () => (activeDlg === dockerDlg ? loadContainers() : loadUpdates());
 // jobView: the popup shows only the Install run's output, from the click until "Back to the list"
 let adminEnabled = false, adminAction = null, jobTimer = null, restarting = false, jobView = false;
 // restartAt: when Restart was confirmed; restartedBack: the server came back while the popup was open
@@ -395,7 +450,9 @@ const ADMIN_USER_KEY = "kongo-admin-user";
 function openAdminForm(action) {
   adminAction = action;
   const sole = adminUsers.length === 1;
-  $("admin-title").textContent = ADMIN_ACTIONS[action].title + (sole ? " " + adminUsers[0] : "");
+  const title = action !== "containers" ? ADMIN_ACTIONS[action].title
+    : adminTarget ? `Update ${adminTarget} as` : `Update ${dockerPending.length === 1 ? "the container" : `all ${dockerPending.length} containers`} as`;
+  $("admin-title").textContent = title + (sole ? " " + adminUsers[0] : "");
   const user = $("admin-user");
   let last = null;
   try { last = localStorage.getItem(ADMIN_USER_KEY); } catch {}
@@ -405,7 +462,7 @@ function openAdminForm(action) {
   $("admin-submit").textContent = ADMIN_ACTIONS[action].submit;
   $("admin-error").textContent = "";
   $("admin-password").value = "";
-  $("admin-actions").hidden = true;
+  dlgActions().hidden = true;
   $("admin-form").hidden = false;
   $("admin-password").focus();
 }
@@ -413,15 +470,17 @@ function openAdminForm(action) {
 function closeAdminForm() {
   $("admin-form").hidden = true;
   $("admin-password").value = "";
-  $("admin-actions").hidden = !adminEnabled;
+  if (activeDlg) dlgActions().hidden = !adminEnabled;
 }
 
-$("admin-actions").addEventListener("click", (e) => {
-  const b = e.target.closest("button[data-action]");
-  if (!b || b.disabled) return;
-  if (b.dataset.action === "list") { jobView = false; loadUpdates(); }
-  else openAdminForm(b.dataset.action);
-});
+for (const actions of document.querySelectorAll(".admin-actions")) {
+  actions.addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-action]");
+    if (!b || b.disabled) return;
+    if (b.dataset.action === "list") { jobView = false; reloadActive(); }
+    else { adminTarget = null; openAdminForm(b.dataset.action); }
+  });
+}
 $("admin-cancel").addEventListener("click", closeAdminForm);
 $("admin-form").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -432,7 +491,12 @@ $("admin-form").addEventListener("submit", async (e) => {
     const r = await fetch(`/api/admin/${adminAction}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user: $("admin-user").value, password: $("admin-password").value }),
+      body: JSON.stringify({
+        user: $("admin-user").value,
+        password: $("admin-password").value,
+        // the containers the popup shows, so nothing the user didn't see gets recreated
+        ...(adminAction === "containers" ? { names: adminTarget ? [adminTarget] : dockerPending } : {}),
+      }),
     });
     if (!r.ok) {
       $("admin-error").textContent = (await r.json().catch(() => ({}))).detail || `Failed (${r.status})`;
@@ -442,7 +506,7 @@ $("admin-form").addEventListener("submit", async (e) => {
     const action = adminAction;
     try { localStorage.setItem(ADMIN_USER_KEY, $("admin-user").value); } catch {}
     closeAdminForm();
-    if (action === "upgrade") { jobView = true; pollJob(); }
+    if (action === "upgrade" || action === "containers") { jobView = true; pollJob(); }
     else startRestartView();
   } catch {
     $("admin-error").textContent = "Could not reach Kongo.";
@@ -502,46 +566,141 @@ async function pollJob() {
   try { j = await (await fetch("/api/admin/job")).json(); } catch { j = undefined; }
   const wait = renderJob(j);
   clearTimeout(jobTimer);
-  if (!updatesDlg.open) return;
+  if (!activeDlg?.open) return;
   // undefined = Kongo is down for a moment, as when Docker itself is updated
   if (j === undefined || wait === "job") jobTimer = setTimeout(pollJob, 2000);
   // the job view doesn't show the list; "Back to the list" loads it
-  else if (wait === "list" && !jobView) jobTimer = setTimeout(loadUpdates, 2000);
+  else if (wait === "list" && !jobView) jobTimer = setTimeout(reloadActive, 2000);
 }
 
 // What to wait for: "job" while it runs, "list" until the server has rechecked the list after it
 function renderJob(j) {
   const box = $("job");
   if (j === undefined) {
-    if (jobView) $("job-state").textContent = "Installing updates… (Kongo is restarting, waiting for it)";
+    if (jobView) $("job-state").textContent = `${JOB_TEXT[lastJobKind].running} (Kongo is restarting, waiting for it)`;
     return "job";
   }
+  const text = JOB_TEXT[(lastJobKind = j?.kind || lastJobKind)];
+  const docker = activeDlg === dockerDlg;
   const running = j?.state === "running";
-  const settling = j?.state === "done" && updatesChecked < j.finished;
+  const settling = j?.state === "done" && (docker ? containersChecked : updatesChecked) < j.finished;
   if (running) jobView = true;
-  updatesDlg.classList.toggle("job-mode", jobView);
-  $("updates-title").textContent = jobView ? "Install updates" : "Available updates";
-  const hint = $("updates-hint");
+  activeDlg.classList.toggle("job-mode", jobView);
+  const h2 = activeDlg.querySelector(".toolbar h2");
+  h2.textContent = jobView ? text.title : h2.dataset.title;
+  const hint = activeDlg.querySelector(".dialog-foot p");
   if (jobView) hint.textContent = running ? "It runs on the server, so you can close this window and come back." : "";
-  else if (adminEnabled) hint.textContent = settling ? "Checking what is left after the install…" : "";
-  for (const b of $("admin-actions").querySelectorAll("button")) {
+  else if (adminEnabled) hint.textContent = settling ? "Checking what is left after the run…" : docker ? dockerHint : "";
+  const nothing = { upgrade: !updatesCount && "Nothing to install", containers: !dockerPending.length && "Nothing to update" };
+  for (const b of dlgActions().querySelectorAll("button")) {
     const a = b.dataset.action;
-    b.hidden = jobView ? running || a === "upgrade" : a === "list";
-    b.disabled = !jobView && (running || settling || checking || (a === "upgrade" && !updatesCount));
-    if (a === "upgrade") b.title = b.disabled && !running && !settling && !checking ? "Nothing to install" : "";
+    const main = a === "upgrade" || a === "containers";
+    b.hidden = jobView ? running || main : a === "list";
+    b.disabled = !jobView && (running || settling || (!docker && checking) || !!nothing[a]);
+    if (main) b.title = b.disabled && !running && !settling ? nothing[a] || "" : "";
   }
+  // the Docker popup's Update buttons, one per container
+  for (const b of $("docker-body").querySelectorAll("button[data-update]")) b.disabled = running || settling;
   const wait = running ? "job" : settling ? "list" : null;
   box.hidden = !jobView || !j;
   if (box.hidden) return wait;
   box.className = "job " + j.state;
-  $("job-state").textContent = running ? "Installing updates…"
-    : j.state === "done" ? "Updates installed" : `Installing failed (exit code ${j.exit})`;
+  $("job-state").textContent = running ? text.running : j.state === "done" ? text.done : `${text.failed} (exit code ${j.exit})`;
   $("job-time").textContent = j.started ? "started " + new Date(j.started * 1000).toLocaleTimeString("sv-SE", { timeStyle: "short" }) : "";
   const pre = $("job-log");
   const atEnd = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 8;
   pre.textContent = j.log.join("\n") || "Starting…";
   if (atEnd) pre.scrollTop = pre.scrollHeight;
   return wait;
+}
+
+// ---------- docker containers (the Docker tile) ----------
+
+const dockerDlg = $("docker-dialog");
+// [label, title, cell class]; the ones that need something are worded as in the updates popup
+const DOCKER_STATUS = {
+  pull: [...CTR_STATUS.pull, "attn"],
+  recreate: [...CTR_STATUS.recreate, "attn"],
+  error: [...CTR_STATUS.error, "dim"],
+  ok: ["Up to date", "The registry has no newer image for this tag", "dim"],
+  local: ["Built locally", "Built on this server, so there is no registry to ask", "dim"],
+  pinned: ["Pinned to a digest", "The image is pinned to a digest, so there is no tag to follow", "dim"],
+};
+let dockerKey = "", dockerHint = "", dockerPending = [], containersChecked = 0;
+// as images.updatable() on the server: only compose containers can be recreated as they were
+const updatable = (c) => (c.status === "pull" || c.status === "recreate") && c.project && c.dir && c.service;
+
+async function loadContainers() {
+  let d = null;
+  try { d = await (await fetch("/api/containers")).json(); } catch {}
+  const body = $("docker-body");
+  if (!d) {
+    $("docker-note").textContent = "";
+    body.innerHTML = `<tr><td colspan="5" class="dim">Could not load the containers.</td></tr>`;
+    return;
+  }
+  const pending = d.containers.filter((c) => c.status === "pull" || c.status === "recreate").length;
+  $("docker-note").textContent = [
+    `${d.containers.length} running`,
+    pending && `${pending} update${pending === 1 ? "" : "s"}`,
+    d.registry_checked && `registries checked ${fmtAgo(Date.now() / 1000 - d.registry_checked)}`,
+  ].filter(Boolean).join(" · ");
+  adminEnabled = d.actions;
+  adminUsers = d.admin_users || [];
+  containersChecked = d.checked;
+  dockerPending = d.containers.filter(updatable).map((c) => c.name);
+  const byHand = pending - dockerPending.length;
+  dockerHint = byHand ? `${byHand} of them ${byHand === 1 ? "was" : "were"} not started with docker compose, so update ${byHand === 1 ? "it" : "them"} by hand.` : "";
+  const hint = $("docker-hint");
+  if (d.actions) hint.textContent = dockerHint;
+  else hint.innerHTML = "Update a container with <code>docker compose pull &amp;&amp; docker compose up -d</code> in its project's folder.";
+  $("docker-actions").hidden = !d.actions || (activeDlg === dockerDlg && !$("admin-form").hidden);
+  body.innerHTML = d.containers.map((c) => {
+    const [label, title, cls] = DOCKER_STATUS[c.status];
+    return `
+    <tr>
+      <td class="name" title="${esc(c.name + (c.state ? " · " + c.state : ""))}">${esc(c.name)}</td>
+      <td class="dim" title="${esc(c.image)}">${esc(c.image)}</td>
+      <td class="${cls}" title="${esc(c.detail ? "Could not check: " + c.detail : title + (cls === "attn" && !updatable(c) ? " – not from docker compose, update it by hand" : ""))}">${esc(label)}</td>
+      <td class="dim" title="${esc(c.dir)}">${esc(c.project) || "—"}</td>
+      <td class="act">${d.actions && updatable(c) ? `<button class="btn small" type="button" data-update="${esc(c.name)}">Update</button>` : ""}</td>
+    </tr>`;
+  }).join("");
+  // after the rows exist, so a running job can disable their buttons
+  if (d.actions) pollJob();
+}
+
+$("docker-body").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-update]");
+  if (!b || b.disabled) return;
+  adminTarget = b.dataset.update;
+  openAdminForm("containers");
+});
+
+function openContainers() {
+  jobView = false;
+  mountAdmin(dockerDlg);
+  loadContainers();
+  dockerDlg.showModal();
+}
+
+$("sysinfo").addEventListener("click", (e) => {
+  if (e.target.closest('[data-tile="box"].clickable')) openContainers();
+});
+$("sysinfo").addEventListener("keydown", (e) => {
+  if ((e.key === "Enter" || e.key === " ") && e.target.matches('[data-tile="box"].clickable')) {
+    e.preventDefault();
+    openContainers();
+  }
+});
+dockerDlg.addEventListener("click", (e) => { if (e.target === dockerDlg) dockerDlg.close(); });
+dockerDlg.addEventListener("close", () => { clearTimeout(jobTimer); closeAdminForm(); });
+
+// the list changed while the popup is open: fetch it again
+function refreshContainers(s, upd) {
+  const key = `${s?.containers}/${upd?.containers}`;
+  if (dockerDlg.open && key !== dockerKey) loadContainers();
+  dockerKey = key;
 }
 
 // ---------- filesystems ----------
@@ -748,7 +907,7 @@ function connect() {
     if (history.length > HISTORY) history = history.slice(-HISTORY);
     renderMeters(msg);
     restartTick(msg.host);
-    if (msg.system) renderSystem(msg.system);
+    if (msg.system) { renderSystem(msg.system, msg.updates); refreshContainers(msg.system, msg.updates); }
     renderUpdatesBadge(msg.updates);
     if (msg.filesystems) renderFilesystems(msg.filesystems);
     if (msg.containers) { lastContainers = msg.containers; renderContainers(msg.containers); }

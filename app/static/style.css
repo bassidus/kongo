@@ -165,7 +165,7 @@ h2 { font-size: 13px; color: var(--ink-2); font-weight: 600; letter-spacing: 0.0
 .dialog::backdrop { background: rgba(8, 10, 14, 0.55); backdrop-filter: blur(3px); }
 .dialog .toolbar { margin: 0; }
 .dialog .table-wrap { flex: 1; min-height: 0; max-height: none; }
-#updates-note { font-size: 12px; }
+#updates-note, #docker-note { font-size: 12px; }
 .dialog-note {
   margin: 12px 18px 0;
   padding: 9px 14px;
@@ -226,7 +226,8 @@ h2 { font-size: 13px; color: var(--ink-2); font-weight: 600; letter-spacing: 0.0
 .admin-error:empty { display: none; }
 .admin-actions[hidden], .admin-form[hidden], .job[hidden], .admin-actions .btn[hidden], .admin-form select[hidden] { display: none; }
 /* while installing, the popup is the run's output only */
-.dialog.job-mode #updates-note, .dialog.job-mode .table-wrap { display: none; }
+.dialog.job-mode .toolbar .muted, .dialog.job-mode .table-wrap { display: none; }
+.dialog.job-mode .job-slot { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .dialog.job-mode .job { flex: 1; min-height: 0; display: flex; flex-direction: column; margin-bottom: 14px; }
 .dialog.job-mode .job pre { flex: 1; min-height: 55vh; max-height: none; }
 .job { --level: var(--accent); margin: 12px 18px 0; }
@@ -251,6 +252,29 @@ h2 { font-size: 13px; color: var(--ink-2); font-weight: 600; letter-spacing: 0.0
 table.updates { min-width: 620px; }
 table.updates th { cursor: default; }
 .w-ver { width: 250px; }
+.w-ctr { width: 200px; }
+.w-ctr-status { width: 250px; }
+.w-act { width: 100px; }
+td.act { padding-top: 3px; padding-bottom: 3px; text-align: right; }
+.btn.small { margin-left: 0; padding: 4px 14px; font-size: 12px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.ctr-section[hidden] { display: none; }
+.ctr-section h3 {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0;
+  padding: 18px 12px 8px;
+  border-top: 1px solid var(--border);
+  font: 600 11px/1.2 var(--font-ui);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.ctr-section h3 span { font-weight: 400; text-transform: none; letter-spacing: 0; }
+.table-hint { margin: 0; padding: 10px 12px 14px; font-size: 12px; }
+.table-hint code { padding: 1px 6px; border-radius: 6px; background: var(--surface-2); color: var(--ink-2); }
+tr.dim-row td { color: var(--muted); }
 .w-src { width: 160px; }
 .tag {
   margin-left: 6px;
@@ -523,6 +547,11 @@ table { width: 100%; min-width: 980px; table-layout: fixed; border-collapse: col
 .sysinfo .icon { width: 24px; height: 24px; border-radius: 7px; }
 .sysinfo .icon svg { width: 14px; height: 14px; }
 .sysinfo .crit dd:not(.sub2) { color: var(--critical); }
+/* the Docker tile opens the list of containers */
+.sysinfo .clickable { cursor: pointer; }
+.sysinfo .clickable:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sysinfo .warn dd.sub2 { color: color-mix(in srgb, var(--c-disk-w) 70%, var(--ink)); font-weight: 600; }
+td.attn { color: color-mix(in srgb, var(--c-disk-w) 70%, var(--ink)); font-weight: 600; }
 
 .w-size { width: 88px; }
 .w-use { width: 200px; }
@@ -626,6 +655,11 @@ tbody tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
   table.updates td:nth-child(3)::before { content: "→ "; color: var(--muted); }
   table.updates td:nth-child(4) { font-size: 12px; }
   table.updates td[colspan] { grid-column: 1 / -1; }
+  table.updates.ctr td:nth-child(3)::before { content: none; }
+  /* the Docker popup: the Update button sits right of the image and status lines */
+  table.updates.docker td:nth-child(2), table.updates.docker td:nth-child(3) { grid-column: 1; }
+  table.updates.docker td.act { grid-column: 2; grid-row: 2 / 4; align-self: center; }
+  table.updates.docker td.act:empty { display: none; }
   .admin-form strong { flex-basis: 100%; }
   .admin-form input, .admin-form select { flex-basis: 100%; max-width: none; }
   .admin-form .btn:first-of-type { margin-left: auto; }

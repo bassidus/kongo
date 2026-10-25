@@ -110,7 +110,7 @@ def available() -> bool:
 
 def unit() -> dict[str, str]:
     out = host(["systemctl", "show", UNIT, "--timestamp=unix",
-                "--property=ActiveState,SubState,Result,ExecMainStatus,ExecMainStartTimestamp,ExecMainExitTimestamp,InvocationID"])
+                "--property=ActiveState,SubState,Result,ExecMainStatus,ExecMainStartTimestamp,ExecMainExitTimestamp,InvocationID,Description"])
     return dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
 
 
@@ -131,6 +131,8 @@ def job() -> dict | None:
         state = "failed"
     log = host(["journalctl", f"_SYSTEMD_INVOCATION_ID={props['InvocationID']}", "-o", "cat", "--no-pager", "-n", "400"], ok=None)
     return {
+        # one unit runs either kind of job, so only one runs at a time
+        "kind": "containers" if props.get("Description") == CONTAINERS_DESCRIPTION else "packages",
         "state": state,
         "exit": int(props.get("ExecMainStatus") or 0),
         "started": ts("ExecMainStartTimestamp"),
@@ -149,19 +151,36 @@ def running() -> bool:
     return status()[0]
 
 
-def start_upgrade(command: str) -> None:
+PACKAGES_DESCRIPTION = "Kongo: install package updates"
+CONTAINERS_DESCRIPTION = "Kongo: update containers"
+# The containers' script on the host: under /var/cache/kongo, which only root can write to
+CONTAINERS_SCRIPT = "/var/cache/kongo/update-containers.sh"
+
+
+def start(description: str, args: list[str], env: tuple[str, ...] = ()) -> None:
     if running():
-        raise Busy("The updates are already being installed.")
+        raise Busy("Kongo is already installing updates or updating containers.")
     # The last run stays loaded (RemainAfterExit) so its result and log can be shown; clear it first
     host(["systemctl", "stop", UNIT], ok=None)
     host(["systemctl", "reset-failed", UNIT], ok=None)
     host([
-        "systemd-run", f"--unit={UNIT}", "--description=Kongo: install package updates",
-        "--property=RemainAfterExit=yes", "--setenv=LC_ALL=C",
-        # no questions from dpkg or needrestart; services are not restarted, the Restart button does that
-        "--setenv=DEBIAN_FRONTEND=noninteractive", "--setenv=NEEDRESTART_MODE=l",
-        "/bin/sh", "-c", command,
+        "systemd-run", f"--unit={UNIT}", f"--description={description}",
+        "--property=RemainAfterExit=yes", "--setenv=LC_ALL=C", *(f"--setenv={e}" for e in env), *args,
     ])
+
+
+def start_upgrade(command: str) -> None:
+    # no questions from dpkg or needrestart; services are not restarted, the Restart button does that
+    start(PACKAGES_DESCRIPTION, ["/bin/sh", "-c", command], ("DEBIAN_FRONTEND=noninteractive", "NEEDRESTART_MODE=l"))
+
+
+def start_containers(script: str) -> None:
+    # A script file rather than sh -c: systemd-run would expand its "$"s, and folder names need quoting
+    os.makedirs(os.path.dirname(ROOT + CONTAINERS_SCRIPT), mode=0o755, exist_ok=True)
+    with open(ROOT + CONTAINERS_SCRIPT, "w") as f:
+        f.write(script)
+    os.chmod(ROOT + CONTAINERS_SCRIPT, 0o700)
+    start(CONTAINERS_DESCRIPTION, ["/bin/sh", CONTAINERS_SCRIPT])
 
 
 def restart() -> None:
