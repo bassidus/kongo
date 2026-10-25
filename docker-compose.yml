@@ -1,0 +1,26 @@
+services:
+  kongo:
+    build: .
+    container_name: kongo
+    restart: unless-stopped
+    # Host network/PID namespaces so the page sees the real NIC counters and all host processes
+    network_mode: host
+    pid: host
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - apparmor:unconfined
+    environment:
+      # Set TZ in .env (not committed), e.g. TZ=Europe/London
+      - TZ=${TZ:-Etc/UTC}
+      - PORT=8090
+      # Comma-separated interface list; empty = all physical NICs
+      - NET_IFACES=
+      # Public IP for the System panel, fetched every 30 min; empty = off
+      - PUBLIC_IP_URL=https://api.ipify.org
+    volumes:
+      - /etc/passwd:/etc/passwd:ro
+      - /etc/group:/etc/group:ro
+      - /etc/localtime:/etc/localtime:ro
+      # Container names for the per-container network panel (config.v2.json)
+      - /var/lib/docker/containers:/host/docker-containers:ro
