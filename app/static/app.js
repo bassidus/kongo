@@ -627,6 +627,8 @@ const DOCKER_STATUS = {
   pinned: ["Pinned to a digest", "The image is pinned to a digest, so there is no tag to follow", "dim"],
 };
 let dockerKey = "", dockerHint = "", dockerPending = [], containersChecked = 0;
+// a container's web UI on this server, by the name the page was opened with
+const webUrl = (w) => `${w.scheme}://${location.hostname.includes(":") ? `[${location.hostname}]` : location.hostname}:${w.port}/`;
 // as images.updatable() on the server: only compose containers can be recreated as they were
 const updatable = (c) => (c.status === "pull" || c.status === "recreate") && c.project && c.dir && c.service;
 
@@ -636,7 +638,7 @@ async function loadContainers() {
   const body = $("docker-body");
   if (!d) {
     $("docker-note").textContent = "";
-    body.innerHTML = `<tr><td colspan="5" class="dim">Could not load the containers.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="6" class="dim">Could not load the containers.</td></tr>`;
     return;
   }
   const pending = d.containers.filter((c) => c.status === "pull" || c.status === "recreate").length;
@@ -663,6 +665,7 @@ async function loadContainers() {
       <td class="dim" title="${esc(c.image)}">${esc(c.image)}</td>
       <td class="${cls}" title="${esc(c.detail ? "Could not check: " + c.detail : title + (cls === "attn" && !updatable(c) ? " – not from docker compose, update it by hand" : ""))}">${esc(label)}</td>
       <td class="dim" title="${esc(c.dir)}">${esc(c.project) || "—"}</td>
+      <td class="web">${c.web.map((w) => `<a class="btn small" href="${esc(webUrl(w))}" target="_blank" rel="noopener noreferrer" title="${esc(webUrl(w))}">${c.web.length > 1 ? w.port : "Open"} ↗</a>`).join("")}</td>
       <td class="act">${d.actions && updatable(c) ? `<button class="btn small" type="button" data-update="${esc(c.name)}">Update</button>` : ""}</td>
     </tr>`;
   }).join("");

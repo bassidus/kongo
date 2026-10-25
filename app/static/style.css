@@ -254,8 +254,13 @@ table.updates th { cursor: default; }
 .w-ver { width: 250px; }
 .w-ctr { width: 200px; }
 .w-ctr-status { width: 250px; }
-.w-act { width: 100px; }
-td.act { padding-top: 3px; padding-bottom: 3px; text-align: right; }
+.w-proj { width: 130px; }
+.w-web { width: 96px; }
+.w-act { width: 96px; }
+td.act, td.web { padding-top: 3px; padding-bottom: 3px; text-align: right; }
+td.web { padding-right: 0; }
+td.web .btn + .btn { margin-left: 4px; }
+a.btn { display: inline-block; text-decoration: none; }
 .btn.small { margin-left: 0; padding: 4px 14px; font-size: 12px; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .ctr-section[hidden] { display: none; }
@@ -656,10 +661,10 @@ tbody tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
   table.updates td:nth-child(4) { font-size: 12px; }
   table.updates td[colspan] { grid-column: 1 / -1; }
   table.updates.ctr td:nth-child(3)::before { content: none; }
-  /* the Docker popup: the Update button sits right of the image and status lines */
-  table.updates.docker td:nth-child(2), table.updates.docker td:nth-child(3) { grid-column: 1; }
-  table.updates.docker td.act { grid-column: 2; grid-row: 2 / 4; align-self: center; }
-  table.updates.docker td.act:empty { display: none; }
+  /* the Docker popup: Open and Update get a row of their own under the status */
+  table.updates.docker td.web { grid-column: 1; grid-row: 4; padding: 6px 0 0; text-align: left; }
+  table.updates.docker td.act { grid-column: 2; grid-row: 4; padding: 6px 0 0; }
+  table.updates.docker td.act:empty, table.updates.docker td.web:empty { display: none; }
   .admin-form strong { flex-basis: 100%; }
   .admin-form input, .admin-form select { flex-basis: 100%; max-width: none; }
   .admin-form .btn:first-of-type { margin-left: auto; }

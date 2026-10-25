@@ -6,7 +6,7 @@ A live stats page for a Linux server, in the style of Windows Task Manager. It r
 
 - **System:** OS, kernel, CPU and temperature, memory, disks, network, private and public IP, running containers and boot time
 - **Package updates:** a badge next to the host name shows how many updates are available and whether a restart is needed. Click it to see the list, and to install the updates or restart the server with the password of a Linux admin user. Works with apt (Debian, Ubuntu), dnf (Fedora, RHEL, Rocky, Alma), zypper (openSUSE), pacman (Arch) and apk (Alpine).
-- **Container updates:** click the Docker tile to see every running container and whether its image has a newer version, in the registry or already pulled but not in use yet. The badge counts them too, and with the admin buttons on you can update them from there.
+- **Container updates:** click the Docker tile to see every running container and whether its image has a newer version, in the registry or already pulled but not in use yet. The badge counts them too, and with the admin buttons on you can update them from there. Containers with a web UI get an **Open** button that opens it in a new tab.
 - **Meters:** CPU, Memory, Disk Read, Disk Write, Network In and Network Out, each with a 60-second graph
 - **Filesystems:** size, used, available and use % for each mount, like `duf`
 - **Network by container:** traffic for each Docker network namespace

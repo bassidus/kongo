@@ -18,6 +18,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from . import webui
+
 ROOT = "/proc/1/root"
 # Ask the registries this often; 0 = no container check at all
 REFRESH = float(os.environ.get("CONTAINER_UPDATES_HOURS", "12")) * 3600
@@ -130,7 +132,10 @@ class Checker:
             raise RuntimeError("no Docker socket on the host")
         with self.lock:
             rows, asked = [], set()
-            for ct in docker(path, "/containers/json"):
+            containers = docker(path, "/containers/json")
+            # the containers that serve a web page, for the popup's Open buttons
+            web = webui.finder.find(lambda cid: docker(path, f"/containers/{cid}/json")["State"]["Pid"], containers)
+            for ct in containers:
                 labels = ct.get("Labels") or {}
                 row = {
                     "name": ct["Names"][0].lstrip("/"),
@@ -140,6 +145,7 @@ class Checker:
                     "service": labels.get("com.docker.compose.service", ""),
                     "files": labels.get("com.docker.compose.project.config_files", ""),
                     "state": ct.get("Status", ""),  # "Up 3 days"
+                    "web": web.get(ct["Id"], []),  # [{"port", "scheme"}]
                     "status": "ok",
                     "detail": "",
                 }
