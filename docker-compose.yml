@@ -18,6 +18,11 @@ services:
       - NET_IFACES=
       # Public IP for the System panel, fetched every 30 min; empty = off
       - PUBLIC_IP_URL=https://api.ipify.org
+      # Refresh the host's package lists when they are older than this many hours; 0 = only read them
+      - UPDATES_REFRESH_HOURS=12
+      # "Install updates" and "Restart" buttons, behind the password of a Linux admin user (sudo/wheel group).
+      # The page has no TLS, so the password crosses the network in clear text: only on a LAN you trust.
+      - ADMIN_ACTIONS=on
     volumes:
       - /etc/passwd:/etc/passwd:ro
       - /etc/group:/etc/group:ro

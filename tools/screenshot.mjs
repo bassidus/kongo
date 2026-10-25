@@ -6,6 +6,9 @@
 //   node tools/screenshot.mjs http://localhost:8090/ /tmp/mobile.png 390 900 dark
 // KONGO_ANON=1 swaps host name, IPs, MAC, users, mounts and container names for made-up values
 // before the page renders them; use it for screenshots that will be published (docs/screenshot.png).
+// KONGO_CLICK=<css selector> clicks that element before the screenshot, e.g. KONGO_CLICK=#updates for the popup;
+// separate several with |, e.g. KONGO_CLICK='#updates|[data-action=upgrade]' for the password form.
+// A step that starts with js: runs that code instead, e.g. to stage a state: 'js:adminUsers = ["a", "b"]'.
 import { spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -64,6 +67,11 @@ try {
   await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: dark ? "dark" : "light" }] });
   await send("Page.navigate", { url });
   await sleep(6000);
+  for (const sel of (process.env.KONGO_CLICK || "").split("|").filter(Boolean)) {
+    const expression = sel.startsWith("js:") ? sel.slice(3) : `document.querySelector(${JSON.stringify(sel)}).click()`;
+    await send("Runtime.evaluate", { expression });
+    await sleep(1000);
+  }
 
   const state = await send("Runtime.evaluate", {
     expression: "[document.getElementById('hostname').textContent, document.getElementById('v-cpu').textContent, document.querySelectorAll('#proc-body tr').length + ' procs'].join(' | ')",

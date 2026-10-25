@@ -281,6 +281,269 @@ function renderSystem(s) {
     </div>`).join("");
 }
 
+// ---------- package updates ----------
+
+const updatesBtn = $("updates");
+const updatesDlg = $("updates-dialog");
+let updatesKey = "";
+
+function renderUpdatesBadge(u) {
+  updatesBtn.hidden = !u || (!u.count && !u.reboot);
+  if (updatesBtn.hidden) return;
+  const parts = u.count ? [`${u.count} update${u.count === 1 ? "" : "s"}`] : ["Restart required"];
+  if (u.security) parts.push(`${u.security} security`);
+  $("updates-text").textContent = parts.join(" · ");
+  updatesBtn.classList.toggle("crit", u.security > 0);
+  updatesBtn.title = !u.count ? "A recent update requires a restart"
+    : u.reboot ? "A recent update requires a restart · click to see the packages" : "Click to see the packages";
+  // the server's list changed while the popup is open: fetch it again
+  const key = `${u.count}/${u.security}/${u.reboot}`;
+  if (updatesDlg.open && key !== updatesKey) loadUpdates();
+  updatesKey = key;
+}
+
+// u: a list the caller already has (from /api/updates/check); otherwise fetch the current one
+async function loadUpdates(u) {
+  const seq = ++loadSeq;
+  if (!u) {
+    try { u = await (await fetch("/api/updates")).json(); } catch {}
+    // a slower, older reply must not overwrite a newer list
+    if (seq !== loadSeq) return;
+  }
+  const body = $("updates-body");
+  if (!u) {
+    $("updates-note").textContent = "";
+    body.innerHTML = `<tr><td colspan="4" class="dim">Could not load the list.</td></tr>`;
+    return;
+  }
+  const n = u.packages.length, sec = u.packages.filter((p) => p.security).length;
+  $("updates-note").textContent = [
+    `${n} package${n === 1 ? "" : "s"}`,
+    sec && `${sec} security`,
+    u.manager,
+    checking ? "checking for new updates…" : u.lists_updated && `lists updated ${fmtAgo(Date.now() / 1000 - u.lists_updated)}`,
+  ].filter(Boolean).join(" · ");
+  const hint = $("updates-hint");
+  hint.innerHTML = u.actions ? "" : "Install the updates on the server with <code></code>.";
+  if (!u.actions) hint.querySelector("code").textContent = u.upgrade;
+  adminEnabled = u.actions;
+  adminUsers = u.admin_users || [];
+  updatesCount = n;
+  updatesChecked = u.checked;
+  $("admin-actions").hidden = !u.actions || !$("admin-form").hidden;
+  $("admin-actions").querySelector('[data-action="restart"]').classList.toggle("attn", !!u.reboot);
+  if (u.actions) pollJob();
+  const reboot = $("updates-reboot");
+  if (!restarting) {
+    reboot.hidden = !u.reboot && !restartedBack;
+    reboot.className = "dialog-note" + (u.reboot ? "" : " good");
+    reboot.textContent = u.reboot ? `Restart required – ${u.reboot}` : "The server has restarted and is back.";
+  }
+  body.innerHTML = n ? u.packages.map((p) => `
+    <tr>
+      <td class="name" title="${esc(p.name)}">${esc(p.name)}${p.security ? ' <span class="tag">security</span>' : ""}</td>
+      <td class="dim" title="${esc(p.old)}">${esc(p.old)}</td>
+      <td title="${esc(p.new)}">${esc(p.new)}</td>
+      <td class="dim" title="${esc(p.source)}">${esc(p.source) || "—"}</td>
+    </tr>`).join("") : `<tr><td colspan="4" class="dim">Everything is up to date.</td></tr>`;
+}
+
+// Show the list at once, then ask the server for fresh lists and a new check, so a restart doesn't miss updates
+async function checkUpdates() {
+  checking = true;
+  loadUpdates();
+  let u = null;
+  try {
+    const r = await fetch("/api/updates/check", { method: "POST" });
+    if (r.ok) u = await r.json();
+  } catch {}
+  checking = false;
+  loadUpdates(u);
+}
+
+updatesBtn.addEventListener("click", () => {
+  jobView = false;
+  checkUpdates();
+  updatesDlg.showModal();
+});
+// a click on the backdrop lands on the dialog element itself
+updatesDlg.addEventListener("click", (e) => { if (e.target === updatesDlg && !restarting) updatesDlg.close(); });
+// While the server restarts the popup stays open: Esc is refused, and if the browser closes it anyway it comes back
+updatesDlg.addEventListener("cancel", (e) => { if (restarting) e.preventDefault(); });
+updatesDlg.addEventListener("close", () => {
+  if (restarting) { updatesDlg.showModal(); return; }
+  clearTimeout(jobTimer);
+  closeAdminForm();
+  restartedBack = false;
+});
+
+// ---------- install updates / restart (behind a Linux admin's password) ----------
+
+const ADMIN_ACTIONS = {
+  upgrade: { title: "Install the updates as", submit: "Install" },
+  restart: { title: "Restart the server as", submit: "Restart" },
+};
+// jobView: the popup shows only the Install run's output, from the click until "Back to the list"
+let adminEnabled = false, adminAction = null, jobTimer = null, restarting = false, jobView = false;
+// restartAt: when Restart was confirmed; restartedBack: the server came back while the popup was open
+let restartAt = 0, restartedBack = false, restartTimer = null;
+let updatesCount = 0, updatesChecked = 0, checking = false, loadSeq = 0;
+// the users on the server who may do this; with just one, only the password is asked for
+let adminUsers = [];
+const ADMIN_USER_KEY = "kongo-admin-user";
+
+function openAdminForm(action) {
+  adminAction = action;
+  const sole = adminUsers.length === 1;
+  $("admin-title").textContent = ADMIN_ACTIONS[action].title + (sole ? " " + adminUsers[0] : "");
+  const user = $("admin-user");
+  let last = null;
+  try { last = localStorage.getItem(ADMIN_USER_KEY); } catch {}
+  user.replaceChildren(...adminUsers.map((name) => new Option(name, name)));
+  user.value = adminUsers.includes(last) ? last : adminUsers[0];
+  user.hidden = sole;
+  $("admin-submit").textContent = ADMIN_ACTIONS[action].submit;
+  $("admin-error").textContent = "";
+  $("admin-password").value = "";
+  $("admin-actions").hidden = true;
+  $("admin-form").hidden = false;
+  $("admin-password").focus();
+}
+
+function closeAdminForm() {
+  $("admin-form").hidden = true;
+  $("admin-password").value = "";
+  $("admin-actions").hidden = !adminEnabled;
+}
+
+$("admin-actions").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-action]");
+  if (!b || b.disabled) return;
+  if (b.dataset.action === "list") { jobView = false; loadUpdates(); }
+  else openAdminForm(b.dataset.action);
+});
+$("admin-cancel").addEventListener("click", closeAdminForm);
+$("admin-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const submit = $("admin-submit");
+  submit.disabled = true;
+  $("admin-error").textContent = "";
+  try {
+    const r = await fetch(`/api/admin/${adminAction}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user: $("admin-user").value, password: $("admin-password").value }),
+    });
+    if (!r.ok) {
+      $("admin-error").textContent = (await r.json().catch(() => ({}))).detail || `Failed (${r.status})`;
+      $("admin-password").select();
+      return;
+    }
+    const action = adminAction;
+    try { localStorage.setItem(ADMIN_USER_KEY, $("admin-user").value); } catch {}
+    closeAdminForm();
+    if (action === "upgrade") { jobView = true; pollJob(); }
+    else startRestartView();
+  } catch {
+    $("admin-error").textContent = "Could not reach Kongo.";
+  } finally {
+    submit.disabled = false;
+  }
+});
+
+// ---------- restart: the popup shows only its progress, and stays until the server is back ----------
+
+function setRestartNote(text, cls = "info") {
+  const note = $("updates-reboot");
+  note.hidden = false;
+  note.className = "dialog-note " + cls;
+  note.textContent = text;
+}
+
+function startRestartView() {
+  restarting = true;
+  restartAt = Date.now() / 1000;
+  jobView = false;
+  clearTimeout(jobTimer);
+  updatesDlg.classList.remove("job-mode");
+  updatesDlg.classList.add("restart-mode");
+  $("updates-title").textContent = "Restart the server";
+  setRestartNote("Restarting the server… The page reconnects when it is back.");
+  clearTimeout(restartTimer);
+  restartTimer = setTimeout(() => {
+    if (!restarting) return;
+    endRestartView();
+    setRestartNote("The server has not come back after 10 minutes. It may need a look.", "");
+  }, 600000);
+}
+
+function endRestartView() {
+  restarting = false;
+  clearTimeout(restartTimer);
+  updatesDlg.classList.remove("restart-mode");
+  $("updates-title").textContent = "Available updates";
+}
+
+// from the WebSocket: the connection dropped, or a tick arrived
+function restartDisconnected() {
+  if (restarting) setRestartNote("The server is shutting down… waiting for it to come back.");
+}
+function restartTick(host) {
+  // back = it has been up for less time than since the click, so it really restarted
+  if (!restarting || host.uptime >= Date.now() / 1000 - restartAt) return;
+  endRestartView();
+  restartedBack = true;
+  setRestartNote("The server has restarted and is back.", "good");
+  checkUpdates();
+}
+
+async function pollJob() {
+  let j;
+  try { j = await (await fetch("/api/admin/job")).json(); } catch { j = undefined; }
+  const wait = renderJob(j);
+  clearTimeout(jobTimer);
+  if (!updatesDlg.open) return;
+  // undefined = Kongo is down for a moment, as when Docker itself is updated
+  if (j === undefined || wait === "job") jobTimer = setTimeout(pollJob, 2000);
+  // the job view doesn't show the list; "Back to the list" loads it
+  else if (wait === "list" && !jobView) jobTimer = setTimeout(loadUpdates, 2000);
+}
+
+// What to wait for: "job" while it runs, "list" until the server has rechecked the list after it
+function renderJob(j) {
+  const box = $("job");
+  if (j === undefined) {
+    if (jobView) $("job-state").textContent = "Installing updates… (Kongo is restarting, waiting for it)";
+    return "job";
+  }
+  const running = j?.state === "running";
+  const settling = j?.state === "done" && updatesChecked < j.finished;
+  if (running) jobView = true;
+  updatesDlg.classList.toggle("job-mode", jobView);
+  $("updates-title").textContent = jobView ? "Install updates" : "Available updates";
+  const hint = $("updates-hint");
+  if (jobView) hint.textContent = running ? "It runs on the server, so you can close this window and come back." : "";
+  else if (adminEnabled) hint.textContent = settling ? "Checking what is left after the install…" : "";
+  for (const b of $("admin-actions").querySelectorAll("button")) {
+    const a = b.dataset.action;
+    b.hidden = jobView ? running || a === "upgrade" : a === "list";
+    b.disabled = !jobView && (running || settling || checking || (a === "upgrade" && !updatesCount));
+    if (a === "upgrade") b.title = b.disabled && !running && !settling && !checking ? "Nothing to install" : "";
+  }
+  const wait = running ? "job" : settling ? "list" : null;
+  box.hidden = !jobView || !j;
+  if (box.hidden) return wait;
+  box.className = "job " + j.state;
+  $("job-state").textContent = running ? "Installing updates…"
+    : j.state === "done" ? "Updates installed" : `Installing failed (exit code ${j.exit})`;
+  $("job-time").textContent = j.started ? "started " + new Date(j.started * 1000).toLocaleTimeString("sv-SE", { timeStyle: "short" }) : "";
+  const pre = $("job-log");
+  const atEnd = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 8;
+  pre.textContent = j.log.join("\n") || "Starting…";
+  if (atEnd) pre.scrollTop = pre.scrollHeight;
+  return wait;
+}
+
 // ---------- filesystems ----------
 
 // duf's colour thresholds: yellow from 50 %, red from 90 %
@@ -484,12 +747,15 @@ function connect() {
     history.push(msg.metrics);
     if (history.length > HISTORY) history = history.slice(-HISTORY);
     renderMeters(msg);
+    restartTick(msg.host);
     if (msg.system) renderSystem(msg.system);
+    renderUpdatesBadge(msg.updates);
     if (msg.filesystems) renderFilesystems(msg.filesystems);
     if (msg.containers) { lastContainers = msg.containers; renderContainers(msg.containers); }
     if (msg.procs && !table.paused) { table.procs = msg.procs; table.groups = msg.groups || {}; renderProcs(); }
   };
   ws.onclose = () => {
+    restartDisconnected();
     dot.classList.remove("on");
     dot.title = "Disconnected – reconnecting…";
     setTimeout(connect, 2000);

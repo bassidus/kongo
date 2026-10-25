@@ -14,9 +14,12 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import psutil
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+from . import admin, updates
 
 INTERVAL = 1.0
 HISTORY = 60
@@ -35,6 +38,14 @@ FS_SKIP_RE = re.compile(r"^/(boot|snap)(/|$)")
 # Fetched server-side for the System panel; set PUBLIC_IP_URL= (empty) to turn it off
 PUBLIC_IP_URL = os.environ.get("PUBLIC_IP_URL", "https://api.ipify.org")
 PUBLIC_IP_REFRESH = 1800.0
+# Package updates (app/updates.py): rechecked when the package database or repository lists change
+UPDATES_POLL = 60.0
+UPDATES_RETRY = 600.0
+# While Install updates runs: the list would be half done, so wait and check as soon as it ends
+UPDATES_BUSY_POLL = 5.0
+# Opening the popup refreshes the lists first, unless they are younger than this
+UPDATES_ON_OPEN = 600.0
+UPDATES_MGR = updates.detect("/proc/1/root")
 
 
 def read_text(path: str | Path) -> str:
@@ -88,6 +99,7 @@ class Sampler:
         self._sys_slow: dict = {}
         self._sys_t = 0.0
         self.public_ip: str | None = None
+        self.updates: dict | None = None
         psutil.cpu_percent(percpu=True)
 
     @staticmethod
@@ -333,6 +345,17 @@ class Sampler:
             "public_ip_enabled": bool(PUBLIC_IP_URL),
         }
 
+    def _updates_summary(self) -> dict | None:
+        # The package list itself is fetched from /api/updates when the popup opens
+        u = self.updates
+        if u is None:
+            return None
+        return {
+            "count": len(u["packages"]),
+            "security": sum(p["security"] for p in u["packages"]),
+            "reboot": bool(u["reboot"]),
+        }
+
     def _collect_procs(self) -> tuple[list[dict], dict[str, dict]]:
         now = time.monotonic()
         dt = max(now - self._proc_t, 1e-3)
@@ -526,6 +549,7 @@ class Sampler:
             "containers": self._container_net(),
             "filesystems": self._filesystems(),
             "system": self._system(),
+            "updates": self._updates_summary(),
             "procs": procs,
             "groups": groups,
         }
@@ -569,11 +593,72 @@ async def public_ip_loop() -> None:
         await asyncio.sleep(delay)
 
 
+updates_wake = asyncio.Event()
+# Popups waiting for a fresh check (POST /api/updates/check); one refresh serves them all
+updates_waiters: list[asyncio.Future] = []
+
+
+def resolve(waiters: list[asyncio.Future]) -> None:
+    for f in waiters:
+        if not f.done():
+            f.set_result(None)
+
+
+async def updates_loop(mgr: updates.Manager) -> None:
+    last, next_check, refreshed, next_refresh = None, 0.0, 0.0, 0.0
+    while True:
+        waiters = updates_waiters[:]
+        updates_waiters.clear()
+        busy, job_ended = False, ""
+        if admin.available():
+            try:
+                busy, job_ended = await asyncio.to_thread(admin.status)
+            except Exception:
+                pass
+        if busy:
+            resolve(waiters)
+            await asyncio.sleep(UPDATES_BUSY_POLL)
+            continue
+        # Refresh the lists when the host's own timers have let them get older than REFRESH,
+        # or when a popup was opened and they are older than UPDATES_ON_OPEN
+        if updates.REFRESH and time.monotonic() >= next_refresh:
+            try:
+                age = time.time() - updates.lists_updated("/proc/1/root", mgr, refreshed)
+                if age > updates.REFRESH or (waiters and age > UPDATES_ON_OPEN):
+                    await asyncio.to_thread(updates.refresh, "/proc/1/root", mgr)
+                    refreshed = time.time()
+            except Exception as e:
+                # offline, or the package manager is busy: check the lists we have and try again later
+                print(f"updates ({mgr.name}) refresh: {e}")
+                next_refresh = time.monotonic() + UPDATES_RETRY
+        try:
+            # a finished Install run counts as a change, even one that changed no package
+            state = (*await asyncio.to_thread(updates.state, "/proc/1/root", mgr), job_ended)
+            if state != last or waiters or time.monotonic() >= next_check:
+                last = state
+                sampler.updates = await asyncio.to_thread(updates.check, "/proc/1/root", mgr, refreshed)
+                next_check = time.monotonic() + mgr.recheck
+        except Exception as e:
+            # keep the last list
+            print(f"updates ({mgr.name}): {e}")
+            next_check = time.monotonic() + UPDATES_RETRY
+        resolve(waiters)
+        # Install wakes the loop at once, so it doesn't check halfway through the run
+        try:
+            await asyncio.wait_for(updates_wake.wait(), UPDATES_POLL)
+        except asyncio.TimeoutError:
+            pass
+        updates_wake.clear()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     tasks = [asyncio.create_task(sampler.run())]
     if PUBLIC_IP_URL:
         tasks.append(asyncio.create_task(public_ip_loop()))
+    # apt, dnf, zypper, pacman or apk; with none of them the badge stays hidden
+    if UPDATES_MGR:
+        tasks.append(asyncio.create_task(updates_loop(UPDATES_MGR)))
     yield
     for task in tasks:
         task.cancel()
@@ -593,6 +678,73 @@ async def snapshot() -> JSONResponse:
     sampler.want_procs_until = time.monotonic() + 5
     await asyncio.sleep(2.2)
     return JSONResponse({**sampler.latest, "history": list(sampler.history)})
+
+
+@app.post("/api/updates/check")
+async def updates_check() -> JSONResponse:
+    # The popup was opened: refresh the lists unless they are fresh, check again, then reply with the list
+    if UPDATES_MGR:
+        waiter = asyncio.get_running_loop().create_future()
+        updates_waiters.append(waiter)
+        updates_wake.set()
+        try:
+            await asyncio.wait_for(waiter, 180)
+        except asyncio.TimeoutError:
+            pass
+    return await updates_list()
+
+
+@app.get("/api/updates")
+async def updates_list() -> JSONResponse:
+    if sampler.updates is None:
+        return JSONResponse(None)
+    users = await asyncio.to_thread(admin.admin_users) if admin.available() and UPDATES_MGR.install else []
+    # without a user who can log in, the buttons would be no use
+    return JSONResponse({**sampler.updates, "actions": bool(users), "admin_users": users})
+
+
+class Credentials(BaseModel):
+    user: str
+    password: str
+
+
+async def authorize(c: Credentials) -> None:
+    if not (UPDATES_MGR and admin.available()):
+        raise HTTPException(404, "Not available on this server.")
+    if wait := admin.guard.locked_for():
+        raise HTTPException(429, f"Too many wrong passwords. Try again in {wait / 60:.0f} min.")
+    if not await asyncio.to_thread(admin.guard.check, c.user, c.password):
+        raise HTTPException(401, "Wrong user name or password, or the user is not an administrator.")
+
+
+async def admin_action(fn, *args) -> None:
+    try:
+        await asyncio.to_thread(fn, *args)
+    except admin.Busy as e:
+        raise HTTPException(409, str(e))
+
+
+@app.post("/api/admin/upgrade")
+async def admin_upgrade(c: Credentials) -> JSONResponse:
+    await authorize(c)
+    await admin_action(admin.start_upgrade, UPDATES_MGR.install)
+    updates_wake.set()
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/admin/restart")
+async def admin_restart(c: Credentials) -> JSONResponse:
+    await authorize(c)
+    await admin_action(admin.restart)
+    return JSONResponse({"ok": True})
+
+
+@app.get("/api/admin/job")
+async def admin_job() -> JSONResponse:
+    # The upgrade's state and log; not secret, the package list is public on the page too
+    if not admin.available():
+        return JSONResponse(None)
+    return JSONResponse(await asyncio.to_thread(admin.job))
 
 
 @app.websocket("/ws")

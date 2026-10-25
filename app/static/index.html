@@ -21,6 +21,10 @@
       <span class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17l5-6 4 4 4-8 5 6"/></svg></span>
       <h1 id="hostname">—</h1>
       <span id="status-dot" class="dot" title="Disconnected"></span>
+      <button id="updates" class="updates-badge" type="button" aria-haspopup="dialog" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5v11M7.5 10l4.5 4.5 4.5-4.5"/><path d="M4 16.5v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+        <span id="updates-text"></span>
+      </button>
     </div>
     <div class="top-right">
       <dl class="host-meta">
@@ -157,6 +161,50 @@
       </div>
     </section>
   </main>
+
+  <dialog id="updates-dialog" class="dialog" aria-labelledby="updates-title">
+    <form method="dialog" class="toolbar">
+      <span class="icon" style="--series: var(--c-disk-w)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5v11M7.5 10l4.5 4.5 4.5-4.5"/><path d="M4 16.5v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></span>
+      <h2 id="updates-title">Available updates</h2>
+      <span class="muted" id="updates-note"></span>
+      <button class="btn" type="submit">Close</button>
+    </form>
+    <div class="dialog-note" id="updates-reboot" hidden></div>
+    <section class="job" id="job" hidden>
+      <div class="job-head"><strong id="job-state"></strong><span class="muted" id="job-time"></span></div>
+      <pre id="job-log"></pre>
+    </section>
+    <div class="table-wrap">
+      <table class="updates">
+        <colgroup><col><col class="w-ver"><col class="w-ver"><col class="w-src"></colgroup>
+        <thead>
+          <tr>
+            <th>Package</th>
+            <th>Installed</th>
+            <th>Available</th>
+            <th>Source</th>
+          </tr>
+        </thead>
+        <tbody id="updates-body"></tbody>
+      </table>
+    </div>
+    <div class="dialog-foot">
+      <p class="muted" id="updates-hint"></p>
+      <div class="admin-actions" id="admin-actions" hidden>
+        <button class="btn" type="button" data-action="list" hidden>Back to the list</button>
+        <button class="btn" type="button" data-action="restart">Restart</button>
+        <button class="btn primary" type="button" data-action="upgrade">Install updates</button>
+      </div>
+      <form class="admin-form" id="admin-form" hidden>
+        <strong id="admin-title"></strong>
+        <select id="admin-user" aria-label="User" autocomplete="username"></select>
+        <input id="admin-password" type="password" placeholder="Password" autocomplete="current-password" required>
+        <button class="btn" type="button" id="admin-cancel">Cancel</button>
+        <button class="btn primary" type="submit" id="admin-submit"></button>
+        <span class="admin-error" id="admin-error" role="alert"></span>
+      </form>
+    </div>
+  </dialog>
 
   <script src="/static/app.js"></script>
 </body>
