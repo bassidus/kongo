@@ -13,6 +13,8 @@ A live stats page for a Linux server, in the style of Windows Task Manager. It r
 - **Processes:** a sortable, filterable list grouped by name, with CPU, 60-second average CPU, memory and disk I/O
 - Light and dark mode
 
+![The updates popup, with package updates and containers that have newer images](docs/updates.png)
+
 ## Run it
 
 You need a Linux host with Docker and Docker Compose. The image [`bassidus/kongo`](https://hub.docker.com/r/bassidus/kongo) is built for amd64 and arm64.
@@ -65,7 +67,11 @@ For container updates, Kongo reads the host's Docker through its socket (via `/p
 With `ADMIN_ACTIONS=on`, the updates popup has two buttons. Each asks for a password, which Kongo checks against the host's `/etc/shadow`. When more than one user on the host qualifies, it also has a menu to pick the user. With none, there are no buttons. Only `root` and members of `sudo`, `wheel` or `admin` are accepted. After 5 wrong passwords in 15 minutes the buttons are locked for 15 minutes.
 
 - **Install updates** runs the package manager without questions, for example `apt-get update` and then `apt-get -y --with-new-pkgs upgrade`. Changed config files are kept, and services are not restarted. It runs as a systemd unit on the host (`kongo-upgrade`), not in the container. An update of Docker itself restarts the Kongo container, but the upgrade carries on; the popup shows its log and picks it up again when Kongo is back.
-- **Update** (next to each container with a newer image, in the Docker tile's popup) and **Update all** run, for each compose project involved, `docker compose pull` for those services and then `docker compose up -d`, in the project's folder. Compose then recreates only the containers whose image changed. Containers started with plain `docker run` are left alone, because their options can't be recreated from what Docker keeps.
+- **Update** (next to each container with a newer image, in the updates popup and the Docker tile's popup) and **Update all** run, for each compose project involved, `docker compose pull` for those services and then `docker compose up -d`, in the project's folder. Compose then recreates only the containers whose image changed. Containers started with plain `docker run` are left alone, because their options can't be recreated from what Docker keeps.
 - **Restart** reboots the host after 3 seconds.
+
+When an update needs a restart, for example a new kernel, the badge says **Restart required** and the popup names the packages that asked for it:
+
+![The updates popup when a restart is needed](docs/restart.png)
 
 **The page has no TLS, so the password crosses the network in clear text.** Only turn this on for a LAN you trust, or put Kongo behind an HTTPS reverse proxy. Set `ADMIN_ACTIONS=off` to remove the buttons.

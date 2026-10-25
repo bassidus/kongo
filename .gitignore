@@ -5,4 +5,4 @@ __pycache__/
 ddtest
 *.png
 CLAUDE.local.md
-!docs/screenshot.png
+!docs/*.png

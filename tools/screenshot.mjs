@@ -9,6 +9,8 @@
 // KONGO_CLICK=<css selector> clicks that element before the screenshot, e.g. KONGO_CLICK=#updates for the popup;
 // separate several with |, e.g. KONGO_CLICK='#updates|[data-action=upgrade]' for the password form.
 // A step that starts with js: runs that code instead, e.g. to stage a state: 'js:adminUsers = ["a", "b"]'.
+// KONGO_DEMO=updates|restart stages made-up package and container updates (or only a pending restart) in the
+// ticks and the API replies, for the README's images. KONGO_CLIP=<css selector> crops to that element.
 import { spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -38,6 +40,60 @@ const anonymize = `(() => {
     return m;
   };
 })();`;
+// Ubuntu-style apt updates and compose containers; nothing here comes from a real server
+const demo = (mode) => `(() => {
+  const now = Date.now() / 1000, restart = ${JSON.stringify(mode)} === "restart";
+  const pkg = (name, old, nu, source, security = false) => ({ name, old, new: nu, source, security });
+  const packages = restart ? [] : [
+    pkg("libssl3t64", "3.0.13-0ubuntu3.5", "3.0.13-0ubuntu3.6", "noble-security", true),
+    pkg("openssl", "3.0.13-0ubuntu3.5", "3.0.13-0ubuntu3.6", "noble-security", true),
+    pkg("curl", "8.5.0-2ubuntu10.6", "8.5.0-2ubuntu10.7", "noble-security", true),
+    pkg("libcurl4t64", "8.5.0-2ubuntu10.6", "8.5.0-2ubuntu10.7", "noble-security", true),
+    pkg("linux-generic", "6.8.0-85.85", "6.8.0-87.88", "noble-security", true),
+    pkg("linux-image-generic", "6.8.0-85.85", "6.8.0-87.88", "noble-security", true),
+    pkg("tzdata", "2025b-0ubuntu0.24.04.1", "2025c-0ubuntu0.24.04.1", "noble-updates"),
+    pkg("containerd.io", "1.7.28-1~ubuntu.24.04~noble", "1.7.29-1~ubuntu.24.04~noble", "noble"),
+    pkg("docker-ce", "5:28.5.1-1~ubuntu.24.04~noble", "5:28.5.2-1~ubuntu.24.04~noble", "noble"),
+    pkg("docker-ce-cli", "5:28.5.1-1~ubuntu.24.04~noble", "5:28.5.2-1~ubuntu.24.04~noble", "noble"),
+  ];
+  const ctr = (name, image, project, service, status) =>
+    ({ name, image, project, service, status, dir: "/srv/" + project, files: "/srv/" + project + "/compose.yaml", state: "Up 3 days", web: [], detail: "" });
+  const containers = [
+    ...(restart ? [] : [
+      ctr("nextcloud", "nextcloud:latest", "nextcloud", "app", "pull"),
+      ctr("grafana", "grafana/grafana:latest", "monitoring", "grafana", "recreate"),
+      ctr("pihole", "pihole/pihole:latest", "pihole", "pihole", "pull"),
+    ]),
+    ctr("nextcloud-db", "postgres:16", "nextcloud", "db", "ok"),
+    ctr("prometheus", "prom/prometheus:latest", "monitoring", "prometheus", "ok"),
+  ];
+  const reboot = restart ? "linux-image-6.8.0-87-generic, linux-base" : null;
+  const images = { containers, registry_checked: now - 240, checked: now };
+  const updates = {
+    manager: "apt", upgrade: "sudo apt upgrade", packages, lists_updated: now - 420, checked: now, reboot,
+    images, actions: true, admin_users: ["admin"],
+  };
+  const parse = JSON.parse;
+  JSON.parse = function (...args) {
+    const m = parse.apply(this, args);
+    if (m && m.type === "tick") m.updates = {
+      count: packages.length, security: packages.filter((p) => p.security).length, reboot: !!reboot,
+      containers: containers.filter((c) => c.status === "pull" || c.status === "recreate").length, images: true,
+    };
+    return m;
+  };
+  const replies = {
+    "/api/updates": updates, "/api/updates/check": updates, "/api/admin/job": null,
+    "/api/containers": { ...images, actions: true, admin_users: ["admin"] },
+  };
+  const realFetch = window.fetch;
+  window.fetch = (url, ...rest) => {
+    const path = new URL(url, location.href).pathname;
+    return path in replies
+      ? Promise.resolve(new Response(JSON.stringify(replies[path]), { headers: { "Content-Type": "application/json" } }))
+      : realFetch(url, ...rest);
+  };
+})();`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 try {
@@ -63,6 +119,7 @@ try {
   await send("Runtime.enable");
   await send("Page.enable");
   if (process.env.KONGO_ANON) await send("Page.addScriptToEvaluateOnNewDocument", { source: anonymize });
+  if (process.env.KONGO_DEMO) await send("Page.addScriptToEvaluateOnNewDocument", { source: demo(process.env.KONGO_DEMO) });
   await send("Emulation.setDeviceMetricsOverride", { width: +w, height: +h, deviceScaleFactor: 1, mobile: +w < 500 });
   await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: dark ? "dark" : "light" }] });
   await send("Page.navigate", { url });
@@ -78,7 +135,17 @@ try {
     returnByValue: true,
   });
   console.log("STATE", state.result.value);
-  const shot = await send("Page.captureScreenshot", { format: "png" });
+  let clip;
+  if (process.env.KONGO_CLIP) {
+    const r = await send("Runtime.evaluate", {
+      expression: `JSON.stringify(document.querySelector(${JSON.stringify(process.env.KONGO_CLIP)}).getBoundingClientRect())`,
+      returnByValue: true,
+    });
+    // a margin, so the rounded corners and the shadow are part of it
+    const b = JSON.parse(r.result.value), m = 20;
+    clip = { x: Math.max(0, b.x - m), y: Math.max(0, b.y - m), width: b.width + 2 * m, height: b.height + 2 * m, scale: 1 };
+  }
+  const shot = await send("Page.captureScreenshot", { format: "png", ...(clip && { clip }) });
   writeFileSync(out, Buffer.from(shot.data, "base64"));
   console.log("saved", out);
 } finally {
