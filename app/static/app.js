@@ -603,8 +603,9 @@ function renderJob(j) {
   const text = JOB_TEXT[(lastJobKind = j?.kind || lastJobKind)];
   const docker = activeDlg === dockerDlg;
   const running = j?.state === "running";
-  // the updates popup shows both packages and containers, so it waits for both rechecks
-  const settling = j?.state === "done" && (docker ? containersChecked : Math.min(updatesChecked, imagesChecked)) < j.finished;
+  // settled once the list the run changed has been checked again: a container run leaves the packages alone
+  const checkedAfter = docker ? containersChecked : j?.kind === "containers" ? imagesChecked : updatesChecked;
+  const settling = j?.state === "done" && checkedAfter < j.finished;
   if (running) jobView = true;
   activeDlg.classList.toggle("job-mode", jobView);
   const h2 = activeDlg.querySelector(".toolbar h2");
