@@ -36,9 +36,10 @@ const anonymize = `(() => {
       (m.filesystems || []).forEach((f, i) => { if (f.mount !== "/") f.mount = "/mnt/data" + i; });
       (m.containers || []).forEach((c, i) => (c.name = "container-" + (i + 1)));
       // made-up web apps; the cards' host is the page's, so it is swapped in the DOM below
-      if (m.apps) m.apps = [["grafana", 3000], ["home-assistant", 8123], ["jellyfin", 8096], ["nextcloud", 8443, "https"],
-        ["pihole", 8053], ["portainer", 9443, "https"], ["syncthing", 8384], ["uptime-kuma", 3001]]
-        .map(([name, port, scheme = "http"]) => ({ name, web: [{ port, scheme }], update: false }));
+      if (m.apps) m.apps = [["grafana", "Grafana", 3000], ["home-assistant", "Home Assistant", 8123], ["jellyfin", "Jellyfin", 8096],
+        ["nextcloud", "Nextcloud", 8443, "https"], ["pihole", "Pi-hole", 8053], ["portainer", "Portainer", 9443, "https"],
+        ["syncthing", "Syncthing", 8384], ["uptime-kuma", "Uptime Kuma", 3001]]
+        .map(([name, title, port, scheme = "http"]) => ({ name, web: [{ port, scheme, title }], update: false }));
       (m.procs || []).forEach((p) => { if (p.user !== "root") p.user = "user"; p.cmd = p.name; });
     }
     return m;

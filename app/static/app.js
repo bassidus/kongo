@@ -299,7 +299,7 @@ const APP_COLORS = ["--c-cpu", "--c-mem", "--c-disk-r", "--c-disk-w", "--c-net-i
 const appColor = (name) => APP_COLORS[[...name].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7) % APP_COLORS.length];
 let appsKey = "";
 
-// one card per web page; a container with several gets one per port
+// one card per web page, named by the page's title (the container's name without one); a container with several gets one per port
 function renderApps(s, upd, apps) {
   $("apps-panel").hidden = !apps;
   if (!apps) return;
@@ -311,12 +311,13 @@ function renderApps(s, upd, apps) {
   const key = JSON.stringify(apps);
   if (key === appsKey) return;  // rebuilt only on a change, so a hovered or focused card stays as it is
   appsKey = key;
-  const cards = apps.flatMap((a) => a.web.map((w) => ({ ...a, w })));
+  const cards = apps.flatMap((a) => a.web.map((w) => ({ ...a, w, label: w.title || a.name })))
+    .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
   $("apps").innerHTML = cards.length ? cards.map((c) => `
-    <a class="app" href="${esc(webUrl(c.w))}" target="_blank" rel="noopener noreferrer" style="--series: var(${appColor(c.name)})" title="Open ${esc(webUrl(c.w))}">
+    <a class="app" href="${esc(webUrl(c.w))}" target="_blank" rel="noopener noreferrer" style="--series: var(${appColor(c.name)})" title="${esc(`${c.name} · open ${webUrl(c.w)}`)}">
       <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${SYS_ICONS.globe}</svg></span>
       <span class="app-text">
-        <span class="app-name">${esc(c.name)}</span>
+        <span class="app-name">${esc(c.label)}</span>
         <span class="app-url"><span class="app-host">${c.w.scheme === "https" ? "https://" : ""}${esc(location.hostname)}</span>:${c.w.port}${c.update ? ' · <b>update available</b>' : ""}</span>
       </span>
       <span class="app-go" aria-hidden="true">↗</span>

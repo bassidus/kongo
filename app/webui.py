@@ -4,10 +4,13 @@ The candidates are the TCP ports Docker publishes on all addresses, and for cont
 ports their processes listen on. When containers share a network namespace (an app routed through a VPN
 container), a port goes to the container whose process listens on it, not to the one that publishes it. Each
 candidate is asked for "/" over http, then https: an HTML page, a redirect or a login prompt counts as a web UI.
+The page's <title> names it on the Docker panel's cards ("Nginx Proxy Manager" rather than "proxy-manager").
 """
 
+import html
 import http.client
 import os
+import re
 import ssl
 import time
 import urllib.parse
@@ -18,6 +21,20 @@ import psutil
 PROBE_CACHE = 600.0
 LOOPBACK = {"0100007F", "00000000000000000000000001000000"}
 DEFAULT_PORT = {"http": 80, "https": 443}
+TITLE_RE = re.compile(rb"<title[^>]*>(.*?)</title", re.I | re.S)
+# Parts of a title that name the page, not the app: "NUT Web - Home", "Login – Nextcloud"
+TITLE_SEP_RE = re.compile(r"\s+[-–—|·:]+\s+")
+GENERIC_RE = re.compile(r"^(home|log ?in|sign ?in|dashboard|welcome|overview|index|main|start|loading.*)$", re.I)
+
+
+def app_name(raw: bytes) -> str:
+    # The app's name from a page's HTML, or "" (the card then shows the container's name)
+    m = TITLE_RE.search(raw)
+    if not m:
+        return ""
+    title = " ".join(html.unescape(m.group(1).decode("utf-8", "replace")).split())
+    name = next((p for p in TITLE_SEP_RE.split(title) if p and not GENERIC_RE.match(p)), "")
+    return name[0].upper() + name[1:] if name.islower() else name
 
 
 def pids_of(main_pid: int) -> set[int]:
@@ -63,16 +80,52 @@ def listening(pid: int) -> list[tuple[int, int, bool]]:
     return found
 
 
-def probe(port: int) -> str | None:
-    # The scheme that serves a web page on this port, or None
-    for scheme in ("http", "https"):
-        if scheme == "http":
-            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
-        else:
-            conn = http.client.HTTPSConnection("127.0.0.1", port, timeout=2, context=ssl._create_unverified_context())
+def get(scheme: str, port: int, path: str) -> http.client.HTTPResponse:
+    if scheme == "http":
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
+    else:
+        conn = http.client.HTTPSConnection("127.0.0.1", port, timeout=2, context=ssl._create_unverified_context())
+    conn.request("GET", path, headers={"User-Agent": "kongo", "Accept": "text/html"})
+    r = conn.getresponse()
+    r.conn = conn  # closed by the caller
+    return r
+
+
+def page_title(r: http.client.HTTPResponse) -> str:
+    return app_name(r.read(65536)) if "html" in r.getheader("Content-Type", "") else ""
+
+
+def followed_title(scheme: str, port: int, location: str) -> str:
+    # The title of the page a redirect leads to (often a login page, after "/" → "/manage" → "/manage/login"),
+    # following a few more redirects as long as they stay on this port
+    path = "/"
+    for _ in range(4):
+        target = urllib.parse.urlsplit(urllib.parse.urljoin(f"{scheme}://127.0.0.1:{port}{path}", location))
+        if (target.scheme, target.port or DEFAULT_PORT[target.scheme]) != (scheme, port):
+            return ""
+        path = (target.path or "/") + (f"?{target.query}" if target.query else "")
         try:
-            conn.request("GET", "/", headers={"User-Agent": "kongo", "Accept": "text/html"})
-            r = conn.getresponse()
+            r = get(scheme, port, path)
+        except (http.client.HTTPException, ssl.SSLError, OSError):
+            return ""
+        try:
+            if r.status in (301, 302, 303, 307, 308):
+                location = r.getheader("Location", "")
+                continue
+            return page_title(r) if r.status < 400 else ""
+        finally:
+            r.conn.close()
+    return ""
+
+
+def probe(port: int) -> dict | None:
+    # {"scheme", "title"} of the web page on this port, or None
+    for scheme in ("http", "https"):
+        try:
+            r = get(scheme, port, "/")
+        except (http.client.HTTPException, ssl.SSLError, OSError):
+            continue
+        try:
             if r.status == 400 and scheme == "http":
                 continue  # often "plain HTTP sent to an HTTPS port"
             if r.status in (301, 302, 303, 307, 308):
@@ -80,22 +133,22 @@ def probe(port: int) -> str | None:
                 target = urllib.parse.urlsplit(r.getheader("Location", ""))
                 if target.scheme and (target.scheme, target.port or DEFAULT_PORT[target.scheme]) != (scheme, port):
                     return None
-                return scheme
+                return {"scheme": scheme, "title": followed_title(scheme, port, r.getheader("Location", ""))}
             # a page, or a login prompt; an error page (a proxy's 404) or JSON (an API) is not a UI
             if r.status == 401 or (r.status < 400 and "html" in r.getheader("Content-Type", "")):
-                return scheme
+                return {"scheme": scheme, "title": page_title(r) if r.status < 400 else ""}
             return None
         except (http.client.HTTPException, ssl.SSLError, OSError):
             continue
         finally:
-            conn.close()
+            r.conn.close()
     return None
 
 
 class WebFinder:
     def __init__(self) -> None:
-        # (container id, host port) -> (when asked, scheme or None)
-        self.probes: dict[tuple[str, int], tuple[float, str | None]] = {}
+        # (container id, host port) -> (when asked, {"scheme", "title"} or None)
+        self.probes: dict[tuple[str, int], tuple[float, dict | None]] = {}
 
     def candidates(self, inspect, containers: list[dict]) -> set[tuple[str, int]]:
         # (container id, host port) pairs worth asking
@@ -146,7 +199,7 @@ class WebFinder:
             if not cached or now - cached[0] > PROBE_CACHE:
                 cached = self.probes[(cid, port)] = (now, probe(port))
             if cached[1]:
-                found.setdefault(cid, []).append({"port": port, "scheme": cached[1]})
+                found.setdefault(cid, []).append({"port": port, **cached[1]})
         self.probes = {k: v for k, v in self.probes.items() if k in alive}
         return found
 
