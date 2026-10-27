@@ -243,45 +243,56 @@ const SYS_ICONS = {
   kernel: '<path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 12.5l9 5 9-5M3 16.5l9 5 9-5"/>',
   machine: '<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>',
   cpu: '<rect x="6" y="6" width="12" height="12" rx="2.5"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9 2.5v3M15 2.5v3M9 18.5v3M15 18.5v3M2.5 9h3M2.5 15h3M18.5 9h3M18.5 15h3"/>',
-  temp: '<path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0z"/><path d="M12 17.5v-6"/>',
   mem: '<rect x="2.5" y="7" width="19" height="10" rx="2"/><path d="M7 10.5v3M12 10.5v3M17 10.5v3M6 17v2.5M10 17v2.5M14 17v2.5M18 17v2.5"/>',
   disk: '<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
   net: '<rect x="9" y="3" width="6" height="5" rx="1"/><rect x="3" y="16" width="6" height="5" rx="1"/><rect x="15" y="16" width="6" height="5" rx="1"/><path d="M12 8v4M6 16v-2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v2"/>',
   home: '<path d="M3 11l9-7 9 7"/><path d="M5.5 9.5V20h13V9.5M10 20v-5h4v5"/>',
   globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.5 3.5 5.5 3.5 9s-1 6.5-3.5 9c-2.5-2.5-3.5-5.5-3.5-9s1-6.5 3.5-9z"/>',
   box: '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/>',
-  power: '<path d="M12 3v8"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/>',
 };
 
 function renderSystem(s, upd) {
   const temp = s.cpu_temp;
-  // [label, value, sub, icon, colour token, extra class]; colours follow the meters where a tile matches one
-  const tiles = [
-    ["Operating system", s.os, s.arch, "os", "--c-net-out"],
-    ["Kernel", s.kernel, "", "kernel", "--c-net-out"],
-    ["Machine", s.machine || "—", "", "machine", "--c-disk-r"],
-    ["Processor", s.cpu_model, [`${s.cores} cores · ${s.threads} threads`, s.cpu_base && `${s.cpu_base} base`].filter(Boolean).join(" · "), "cpu", "--c-cpu"],
-    ["CPU temperature", temp ? `${Math.round(temp.current)} °C` : "—",
-      [s.cpu_freq && `${fmtGHz(s.cpu_freq)} now`, temp?.high && `high ${Math.round(temp.high)} °C`].filter(Boolean).join(" · "),
-      "temp", "--c-net-in", temp?.high && temp.current >= temp.high ? "crit" : ""],
-    ["Memory", fmtBytes(s.mem_total), `Swap ${fmtBytes(s.swap_total)}`, "mem", "--c-mem"],
-    ["Storage", `${s.disks.length} disks · ${fmtBytes(s.disks.reduce((t, d) => t + d.size, 0))}`,
-      s.disks.map((d) => `${d.name} ${fmtBytes(d.size, 0)} ${d.kind}`).join(" · "), "disk", "--c-disk-r"],
-    ["Network", s.nics.map((n) => n.speed > 0 ? `${n.name} · ${fmtSpeed(n.speed)}` : n.name).join(", ") || "—", s.nics.map((n) => n.mac).join(", "), "net", "--c-net-in"],
-    ["Private IP", s.private_ips.join(", ") || "—", s.gateway ? `Gateway ${s.gateway}` : "", "home", "--c-net-in"],
-    ["Public IP", s.public_ip || (s.public_ip_enabled ? "Looking up…" : "Off"), s.public_ip_enabled ? "Checked every 30 min" : "", "globe", "--c-net-out"],
-    // clickable when the container check runs: it opens the list of containers
-    ["Docker", `${s.containers} containers running`,
-      upd?.images ? (upd.containers ? `${upd.containers} update${upd.containers === 1 ? "" : "s"} available` : "All images up to date") : "",
-      "box", "--c-cpu", upd?.images ? "clickable" + (upd.containers ? " warn" : "") : ""],
-    ["Booted", new Date(s.boot * 1000).toLocaleString("sv-SE", { dateStyle: "short", timeStyle: "short" }), fmtAgo(Date.now() / 1000 - s.boot), "power", "--c-disk-w"],
+  // [label, value, sub, icon, colour token, extra class, aside]; colours follow the meters where a tile matches one.
+  // The aside sits at the right end of the tile's label: the CPU temperature
+  const groups = [
+    ["Software", "", [
+      ["Operating system", s.os, s.arch, "os", "--c-net-out"],
+      ["Kernel", s.kernel, "", "kernel", "--c-net-out"],
+    ]],
+    ["Docker", "", [
+      // clickable when the container check runs: it opens the list of containers
+      ["Containers", `${s.containers} running`,
+        upd?.images ? (upd.containers ? `${upd.containers} update${upd.containers === 1 ? "" : "s"} available` : "All images up to date") : "",
+        "box", "--c-cpu", upd?.images ? "clickable" + (upd.containers ? " warn" : "") : ""],
+    ]],
+    ["Network", "wide", [
+      ["Interface", s.nics.map((n) => n.speed > 0 ? `${n.name} · ${fmtSpeed(n.speed)}` : n.name).join(", ") || "—", s.nics.map((n) => n.mac).join(", "), "net", "--c-net-in"],
+      ["Private IP", s.private_ips.join(", ") || "—", s.gateway ? `Gateway ${s.gateway}` : "", "home", "--c-net-in"],
+      ["Public IP", s.public_ip || (s.public_ip_enabled ? "Looking up…" : "Off"), s.public_ip_enabled ? "Checked every 30 min" : "", "globe", "--c-net-out"],
+    ]],
+    ["Hardware", "wide", [
+      ["Machine", s.machine || "—", "", "machine", "--c-disk-r"],
+      ["CPU", s.cpu_model,
+        [`${s.cores} cores · ${s.threads} threads`, s.cpu_freq && `${fmtGHz(s.cpu_freq)} now`, s.cpu_base && `${s.cpu_base} base`].filter(Boolean).join(" · "),
+        "cpu", "--c-cpu", temp?.high && temp.current >= temp.high ? "crit" : "",
+        temp && { text: `${Math.round(temp.current)} °C`, title: temp.high ? `CPU temperature · high ${Math.round(temp.high)} °C` : "CPU temperature" }],
+      ["Memory", fmtBytes(s.mem_total), `Swap ${fmtBytes(s.swap_total)}`, "mem", "--c-mem"],
+      ["Storage", `${s.disks.length} disks · ${fmtBytes(s.disks.reduce((t, d) => t + d.size, 0))}`,
+        s.disks.map((d) => `${d.name} ${fmtBytes(d.size, 0)} ${d.kind}`).join(" · "), "disk", "--c-disk-r"],
+    ]],
   ];
-  $("sysinfo").innerHTML = tiles.map(([label, value, sub, icon, color, cls]) => `
+  const tile = ([label, value, sub, icon, color, cls, aside]) => `
     <div class="${cls || ""}" style="--series: var(${color})" data-tile="${icon}"${cls?.includes("clickable") ? ' role="button" tabindex="0"' : ""}>
-      <dt><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${SYS_ICONS[icon]}</svg></span>${esc(label)}</dt>
+      <dt><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${SYS_ICONS[icon]}</svg></span>${esc(label)}${aside ? `<span class="aside" title="${esc(aside.title)}">${esc(aside.text)}</span>` : ""}</dt>
       <dd title="${esc(value)}">${esc(value)}</dd>
       ${sub ? `<dd class="sub2" title="${esc(sub)}">${esc(sub)}</dd>` : ""}
-    </div>`).join("");
+    </div>`;
+  $("sysinfo").innerHTML = groups.map(([title, cls, tiles]) => `
+    <section class="sysgroup ${cls}" aria-label="${title}">
+      <h3>${title}</h3>
+      <dl style="--n: ${tiles.length}">${tiles.map(tile).join("")}</dl>
+    </section>`).join("");
 }
 
 // ---------- package updates ----------

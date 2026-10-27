@@ -320,7 +320,6 @@ class Sampler:
             "disks": disks,
             "nics": nics,
             "timezone": tz,
-            "boot": psutil.boot_time(),
         }
 
     def _slow_info(self) -> dict:
