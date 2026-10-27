@@ -500,76 +500,57 @@ table { width: 100%; min-width: 980px; table-layout: fixed; border-collapse: col
 .w-threads { width: 84px; }
 .w-status { width: 92px; }
 .w-io-avg { width: 120px; }
-/* four groups: Software | Docker on the first row, Network and Hardware across the full width below */
+/* three groups (Machine, Network, Software), each a list of label → value rows */
 .sysinfo {
   display: grid;
-  grid-template-columns: 2fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   padding: 16px 18px 18px;
 }
+@media (max-width: 1100px) {
+  .sysinfo { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sysgroup:last-child { grid-column: 1 / -1; }
+}
+@media (max-width: 700px) { .sysinfo { grid-template-columns: minmax(0, 1fr); } }
 .sysgroup {
   min-width: 0;
-  padding: 10px 12px 12px;
+  padding: 12px 14px 6px;
+  border-radius: 12px;
+  background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 14px;
 }
-.sysgroup.wide { grid-column: 1 / -1; }
 .sysgroup h3 {
-  margin: 0 2px 10px;
+  margin: 0 0 4px;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--muted);
 }
-.sysgroup dl {
+.sysgroup dl { margin: 0; }
+/* a row: icon and label | value | aside (the CPU temperature), with the sub line under the value */
+.sysgroup dl > div {
   display: grid;
-  grid-template-columns: repeat(var(--n), minmax(0, 1fr));
-  gap: 10px;
-  margin: 0;
+  grid-template-columns: 124px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 10px;
+  padding: 9px 0;
+  border-top: 1px solid var(--grid);
 }
-@media (max-width: 900px) {
-  .sysinfo { grid-template-columns: minmax(0, 1fr); }
-  .sysgroup dl { grid-template-columns: repeat(min(var(--n), 2), minmax(0, 1fr)); }
-  .sysgroup dl > div:last-child:nth-child(odd) { grid-column: 1 / -1; }
-}
-/* each tile gets its topic's meter colour: the same corner tint and icon chip as the meters */
-.sysinfo dl > div {
-  min-width: 0;
-  padding: 12px 14px;
-  border-radius: 12px;
-  background:
-    radial-gradient(240px 110px at 0% 0%, color-mix(in srgb, var(--series) 12%, transparent), transparent 70%),
-    var(--surface-2);
-  border: 1px solid var(--border);
-  transition: border-color 0.2s;
-}
-.sysinfo dl > div:hover { border-color: color-mix(in srgb, var(--series) 35%, transparent); }
+.sysgroup dl > div:first-child { border-top: 0; }
 .sysinfo dt {
+  grid-row: 1;
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 8px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-size: 13px;
   color: var(--muted);
 }
-/* the CPU temperature, at the right end of the CPU tile's label */
-.sysinfo dt .aside {
-  margin-left: auto;
+.sysinfo dd {
+  grid-row: 1;
+  margin: 0;
   font-family: var(--font-display);
   font-size: 14px;
-  letter-spacing: 0;
-  color: var(--ink);
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-.sysinfo dd {
-  margin: 4px 0 0;
-  font-family: var(--font-display);
-  font-size: 15px;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
@@ -577,6 +558,8 @@ table { width: 100%; min-width: 980px; table-layout: fixed; border-collapse: col
   font-variant-numeric: tabular-nums;
 }
 .sysinfo dd.sub2 {
+  grid-row: 2;
+  grid-column: 2 / -1;
   margin-top: 2px;
   font-family: var(--font-ui);
   font-size: 12px;
@@ -585,12 +568,14 @@ table { width: 100%; min-width: 980px; table-layout: fixed; border-collapse: col
   white-space: normal;
   overflow-wrap: anywhere;
 }
-.sysinfo .icon { width: 24px; height: 24px; border-radius: 7px; }
+.sysinfo dd.aside { grid-column: 3; }
+.sysinfo .icon { width: 24px; height: 24px; border-radius: 7px; flex: none; }
 .sysinfo .icon svg { width: 14px; height: 14px; }
 .sysinfo .crit .aside { color: var(--critical); }
-/* the Docker tile opens the list of containers */
-.sysinfo .clickable { cursor: pointer; }
-.sysinfo .clickable:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* the Docker row opens the list of containers */
+.sysinfo .clickable { cursor: pointer; margin: 0 -8px; padding-inline: 8px; border-radius: 8px; transition: background 0.15s; }
+.sysinfo .clickable:hover { background: var(--hover); }
+.sysinfo .clickable:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .sysinfo .warn dd.sub2 { color: color-mix(in srgb, var(--c-disk-w) 70%, var(--ink)); font-weight: 600; }
 td.attn { color: color-mix(in srgb, var(--c-disk-w) 70%, var(--ink)); font-weight: 600; }
 
@@ -678,10 +663,8 @@ tbody tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
   .meter .value { font-size: 19px; }
   .chart { height: 64px; }
   .sysinfo { gap: 10px; padding: 12px; }
-  .sysgroup { padding: 8px 8px 10px; }
-  .sysgroup dl { gap: 8px; }
-  .sysinfo dl > div { padding: 10px 12px; }
-  .sysinfo dd { font-size: 14px; white-space: normal; overflow-wrap: anywhere; }
+  .sysgroup dl > div { grid-template-columns: 108px minmax(0, 1fr) auto; }
+  .sysinfo dd { white-space: normal; overflow-wrap: anywhere; }
   /* updates: one card per package (name and source, then old → new) instead of four columns */
   table.updates, table.updates tbody { display: block; min-width: 0; }
   table.updates colgroup, table.updates thead { display: none; }

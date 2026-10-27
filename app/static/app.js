@@ -248,50 +248,51 @@ const SYS_ICONS = {
   net: '<rect x="9" y="3" width="6" height="5" rx="1"/><rect x="3" y="16" width="6" height="5" rx="1"/><rect x="15" y="16" width="6" height="5" rx="1"/><path d="M12 8v4M6 16v-2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v2"/>',
   home: '<path d="M3 11l9-7 9 7"/><path d="M5.5 9.5V20h13V9.5M10 20v-5h4v5"/>',
   globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.5 3.5 5.5 3.5 9s-1 6.5-3.5 9c-2.5-2.5-3.5-5.5-3.5-9s1-6.5 3.5-9z"/>',
+  gateway: '<rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 16.5h.01M11 16.5h.01M17 13V8M14.5 5.5a3.5 3.5 0 0 1 5 0"/>',
   box: '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/>',
 };
 
 function renderSystem(s, upd) {
   const temp = s.cpu_temp;
-  // [label, value, sub, icon, colour token, extra class, aside]; colours follow the meters where a tile matches one.
-  // The aside sits at the right end of the tile's label: the CPU temperature
+  // [label, value, sub, icon, colour token, extra class, aside]; colours follow the meters where a row matches one.
+  // The aside sits at the right end of the row: the CPU temperature
   const groups = [
-    ["Software", "", [
-      ["Operating system", s.os, s.arch, "os", "--c-net-out"],
-      ["Kernel", s.kernel, "", "kernel", "--c-net-out"],
-    ]],
-    ["Docker", "", [
-      // clickable when the container check runs: it opens the list of containers
-      ["Containers", `${s.containers} running`,
-        upd?.images ? (upd.containers ? `${upd.containers} update${upd.containers === 1 ? "" : "s"} available` : "All images up to date") : "",
-        "box", "--c-cpu", upd?.images ? "clickable" + (upd.containers ? " warn" : "") : ""],
-    ]],
-    ["Network", "wide", [
-      ["Interface", s.nics.map((n) => n.speed > 0 ? `${n.name} · ${fmtSpeed(n.speed)}` : n.name).join(", ") || "—", s.nics.map((n) => n.mac).join(", "), "net", "--c-net-in"],
-      ["Private IP", s.private_ips.join(", ") || "—", s.gateway ? `Gateway ${s.gateway}` : "", "home", "--c-net-in"],
-      ["Public IP", s.public_ip || (s.public_ip_enabled ? "Looking up…" : "Off"), s.public_ip_enabled ? "Checked every 30 min" : "", "globe", "--c-net-out"],
-    ]],
-    ["Hardware", "wide", [
-      ["Machine", s.machine || "—", "", "machine", "--c-disk-r"],
+    ["Machine", [
+      ["Motherboard", s.machine || "—", "", "machine", "--c-disk-r"],
       ["CPU", s.cpu_model,
         [`${s.cores} cores · ${s.threads} threads`, s.cpu_freq && `${fmtGHz(s.cpu_freq)} now`, s.cpu_base && `${s.cpu_base} base`].filter(Boolean).join(" · "),
         "cpu", "--c-cpu", temp?.high && temp.current >= temp.high ? "crit" : "",
         temp && { text: `${Math.round(temp.current)} °C`, title: temp.high ? `CPU temperature · high ${Math.round(temp.high)} °C` : "CPU temperature" }],
-      ["Memory", fmtBytes(s.mem_total), `Swap ${fmtBytes(s.swap_total)}`, "mem", "--c-mem"],
+      ["RAM", fmtBytes(s.mem_total), `Swap ${fmtBytes(s.swap_total)}`, "mem", "--c-mem"],
       ["Storage", `${s.disks.length} disks · ${fmtBytes(s.disks.reduce((t, d) => t + d.size, 0))}`,
         s.disks.map((d) => `${d.name} ${fmtBytes(d.size, 0)} ${d.kind}`).join(" · "), "disk", "--c-disk-r"],
     ]],
+    ["Network", [
+      ["NIC", s.nics.map((n) => n.speed > 0 ? `${n.name} · ${fmtSpeed(n.speed)}` : n.name).join(", ") || "—", s.nics.map((n) => n.mac).join(", "), "net", "--c-net-in"],
+      ["Public IP", s.public_ip || (s.public_ip_enabled ? "Looking up…" : "Off"), s.public_ip_enabled ? "Checked every 30 min" : "", "globe", "--c-net-out"],
+      ["Private IP", s.private_ips.join(", ") || "—", "", "home", "--c-net-in"],
+      ["Gateway", s.gateway || "—", "", "gateway", "--c-net-in"],
+    ]],
+    ["Software", [
+      ["OS", s.os, s.arch, "os", "--c-net-out"],
+      ["Kernel", s.kernel, "", "kernel", "--c-net-out"],
+      // clickable when the container check runs: it opens the list of containers
+      ["Docker", `${s.containers} containers running`,
+        upd?.images ? (upd.containers ? `${upd.containers} update${upd.containers === 1 ? "" : "s"} available` : "All images up to date") : "",
+        "box", "--c-cpu", upd?.images ? "clickable" + (upd.containers ? " warn" : "") : ""],
+    ]],
   ];
-  const tile = ([label, value, sub, icon, color, cls, aside]) => `
+  const row = ([label, value, sub, icon, color, cls, aside]) => `
     <div class="${cls || ""}" style="--series: var(${color})" data-tile="${icon}"${cls?.includes("clickable") ? ' role="button" tabindex="0"' : ""}>
-      <dt><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${SYS_ICONS[icon]}</svg></span>${esc(label)}${aside ? `<span class="aside" title="${esc(aside.title)}">${esc(aside.text)}</span>` : ""}</dt>
+      <dt><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${SYS_ICONS[icon]}</svg></span>${esc(label)}</dt>
       <dd title="${esc(value)}">${esc(value)}</dd>
+      ${aside ? `<dd class="aside" title="${esc(aside.title)}">${esc(aside.text)}</dd>` : ""}
       ${sub ? `<dd class="sub2" title="${esc(sub)}">${esc(sub)}</dd>` : ""}
     </div>`;
-  $("sysinfo").innerHTML = groups.map(([title, cls, tiles]) => `
-    <section class="sysgroup ${cls}" aria-label="${title}">
+  $("sysinfo").innerHTML = groups.map(([title, rows]) => `
+    <section class="sysgroup" aria-label="${title}">
       <h3>${title}</h3>
-      <dl style="--n: ${tiles.length}">${tiles.map(tile).join("")}</dl>
+      <dl>${rows.map(row).join("")}</dl>
     </section>`).join("");
 }
 
@@ -656,7 +657,7 @@ function renderJob(j) {
   return wait;
 }
 
-// ---------- docker containers (the Docker tile) ----------
+// ---------- docker containers (the Docker row) ----------
 
 const dockerDlg = $("docker-dialog");
 // [label, title, cell class]; the ones that need something are worded as in the updates popup

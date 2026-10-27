@@ -4,9 +4,9 @@ A live stats page for a Linux server, in the style of Windows Task Manager. It r
 
 ![Kongo in dark mode](docs/screenshot.png)
 
-- **System:** OS, kernel, CPU and temperature, memory, disks, network, private and public IP, and running containers
+- **System:** OS, kernel, CPU and temperature, memory, disks, network, private and public IP, gateway and running containers
 - **Package updates:** a badge next to the host name shows how many updates are available and whether a restart is needed. Click it to see the list, and to install the updates or restart the server with the password of a Linux admin user. Works with apt (Debian, Ubuntu), dnf (Fedora, RHEL, Rocky, Alma), zypper (openSUSE), pacman (Arch) and apk (Alpine).
-- **Container updates:** click the Docker tile to see every running container and whether its image has a newer version, in the registry or already pulled but not in use yet. The badge counts them too, and with the admin buttons on you can update them from there. Containers with a web UI get an **Open** button that opens it in a new tab.
+- **Container updates:** click the Docker row in the System panel to see every running container and whether its image has a newer version, in the registry or already pulled but not in use yet. The badge counts them too, and with the admin buttons on you can update them from there. Containers with a web UI get an **Open** button that opens it in a new tab.
 - **Meters:** CPU, Memory, Disk Read, Disk Write, Network In and Network Out, each with a 60-second graph
 - **Filesystems:** size, used, available and use % for each mount, like `duf`
 - **Network by container:** traffic for each Docker network namespace
@@ -67,7 +67,7 @@ For container updates, Kongo reads the host's Docker through its socket (via `/p
 With `ADMIN_ACTIONS=on`, the updates popup has two buttons. Each asks for a password, which Kongo checks against the host's `/etc/shadow`. When more than one user on the host qualifies, it also has a menu to pick the user. With none, there are no buttons. Only `root` and members of `sudo`, `wheel` or `admin` are accepted. After 5 wrong passwords in 15 minutes the buttons are locked for 15 minutes.
 
 - **Install updates** runs the package manager without questions, for example `apt-get update` and then `apt-get -y --with-new-pkgs upgrade`. Changed config files are kept, and services are not restarted. It runs as a systemd unit on the host (`kongo-upgrade`), not in the container. An update of Docker itself restarts the Kongo container, but the upgrade carries on; the popup shows its log and picks it up again when Kongo is back.
-- **Update** (next to each container with a newer image, in the updates popup and the Docker tile's popup) and **Update all** run, for each compose project involved, `docker compose pull` for those services and then `docker compose up -d`, in the project's folder. Compose then recreates only the containers whose image changed. Containers started with plain `docker run` are left alone, because their options can't be recreated from what Docker keeps.
+- **Update** (next to each container with a newer image, in the updates popup and the Docker row's popup) and **Update all** run, for each compose project involved, `docker compose pull` for those services and then `docker compose up -d`, in the project's folder. Compose then recreates only the containers whose image changed. Containers started with plain `docker run` are left alone, because their options can't be recreated from what Docker keeps.
 - **Restart** reboots the host after 3 seconds.
 
 When an update needs a restart, for example a new kernel, the badge says **Restart required** and the popup names the packages that asked for it:
