@@ -35,10 +35,18 @@ const anonymize = `(() => {
       }
       (m.filesystems || []).forEach((f, i) => { if (f.mount !== "/") f.mount = "/mnt/data" + i; });
       (m.containers || []).forEach((c, i) => (c.name = "container-" + (i + 1)));
+      // made-up web apps; the cards' host is the page's, so it is swapped in the DOM below
+      if (m.apps) m.apps = [["grafana", 3000], ["home-assistant", 8123], ["jellyfin", 8096], ["nextcloud", 8443, "https"],
+        ["pihole", 8053], ["portainer", 9443, "https"], ["syncthing", 8384], ["uptime-kuma", 3001]]
+        .map(([name, port, scheme = "http"]) => ({ name, web: [{ port, scheme }], update: false }));
       (m.procs || []).forEach((p) => { if (p.user !== "root") p.user = "user"; p.cmd = p.name; });
     }
     return m;
   };
+  new MutationObserver(() => document.querySelectorAll(".app-host").forEach((e) => {
+    const host = e.textContent.replace(/[^/]+$/, "myserver");
+    if (e.textContent !== host) e.textContent = host;
+  })).observe(document, { subtree: true, childList: true });
 })();`;
 // Ubuntu-style apt updates and compose containers; nothing here comes from a real server
 const demo = (mode) => `(() => {

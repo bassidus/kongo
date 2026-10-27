@@ -528,16 +528,19 @@ table { width: 100%; min-width: 980px; table-layout: fixed; border-collapse: col
   color: var(--muted);
 }
 .sysgroup dl { margin: 0; }
-/* a row: icon and label | value | aside (the CPU temperature), with the sub line under the value */
+/* a row: icon and label | value, with the sub line under the value */
 .sysgroup dl > div {
   display: grid;
-  grid-template-columns: 124px minmax(0, 1fr) auto;
+  grid-template-columns: 124px minmax(0, 1fr);
   align-items: center;
   column-gap: 10px;
   padding: 9px 0;
   border-top: 1px solid var(--grid);
 }
 .sysgroup dl > div:first-child { border-top: 0; }
+/* Machine: the values say what they are, so only the icon shows (the label stays for screen readers) */
+.sysgroup.nolabel dl > div { grid-template-columns: 24px minmax(0, 1fr); }
+.sysgroup.nolabel .label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .sysinfo dt {
   grid-row: 1;
   display: flex;
@@ -559,7 +562,7 @@ table { width: 100%; min-width: 980px; table-layout: fixed; border-collapse: col
 }
 .sysinfo dd.sub2 {
   grid-row: 2;
-  grid-column: 2 / -1;
+  grid-column: 2;
   margin-top: 2px;
   font-family: var(--font-ui);
   font-size: 12px;
@@ -568,15 +571,48 @@ table { width: 100%; min-width: 980px; table-layout: fixed; border-collapse: col
   white-space: normal;
   overflow-wrap: anywhere;
 }
-.sysinfo dd.aside { grid-column: 3; }
+/* small text after a value: the CPU temperature, the OS's architecture */
+.sysinfo .extra { margin-left: 6px; font-family: var(--font-ui); font-size: 12px; font-weight: 400; color: var(--ink-2); }
 .sysinfo .icon { width: 24px; height: 24px; border-radius: 7px; flex: none; }
 .sysinfo .icon svg { width: 14px; height: 14px; }
-.sysinfo .crit .aside { color: var(--critical); }
-/* the Docker row opens the list of containers */
-.sysinfo .clickable { cursor: pointer; margin: 0 -8px; padding-inline: 8px; border-radius: 8px; transition: background 0.15s; }
-.sysinfo .clickable:hover { background: var(--hover); }
-.sysinfo .clickable:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.sysinfo .warn dd.sub2 { color: color-mix(in srgb, var(--c-disk-w) 70%, var(--ink)); font-weight: 600; }
+.sysinfo .crit .extra { color: var(--critical); font-weight: 600; }
+
+/* Docker: a card per container web page */
+#apps-note { font-size: 12px; }
+#apps-note.warn { color: color-mix(in srgb, var(--c-disk-w) 70%, var(--ink)); font-weight: 600; }
+.apps {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 10px;
+  padding: 16px 18px 18px;
+}
+.app {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 11px 12px;
+  border-radius: 12px;
+  background:
+    radial-gradient(200px 90px at 0% 0%, color-mix(in srgb, var(--series) 12%, transparent), transparent 70%),
+    var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--ink);
+  text-decoration: none;
+  transition: border-color 0.2s, transform 0.15s;
+}
+.app:hover { border-color: color-mix(in srgb, var(--series) 45%, transparent); transform: translateY(-1px); }
+.app:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.app .icon { width: 30px; height: 30px; border-radius: 9px; flex: none; }
+.app .icon svg { width: 16px; height: 16px; }
+.app-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.app-name, .app-url { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.app-name { font-family: var(--font-display); font-size: 14px; font-weight: 600; }
+.app-url { font-size: 12px; color: var(--ink-2); }
+.app-url b { color: color-mix(in srgb, var(--c-disk-w) 70%, var(--ink)); font-weight: 600; }
+.app-go { color: var(--muted); transition: color 0.15s; }
+.app:hover .app-go { color: var(--series); }
+.apps-empty { margin: 0; font-size: 13px; }
 td.attn { color: color-mix(in srgb, var(--c-disk-w) 70%, var(--ink)); font-weight: 600; }
 
 .w-size { width: 88px; }
@@ -663,7 +699,13 @@ tbody tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
   .meter .value { font-size: 19px; }
   .chart { height: 64px; }
   .sysinfo { gap: 10px; padding: 12px; }
-  .sysgroup dl > div { grid-template-columns: 108px minmax(0, 1fr) auto; }
+  .sysgroup dl > div { grid-template-columns: 96px minmax(0, 1fr); }
+  .apps { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 12px; gap: 8px; }
+  .app { gap: 8px; padding: 9px 10px; }
+  .app .icon { width: 26px; height: 26px; border-radius: 8px; }
+  .app .icon svg { width: 14px; height: 14px; }
+  /* only the port: the host is the one the page is open on */
+  .app-go, .app-host { display: none; }
   .sysinfo dd { white-space: normal; overflow-wrap: anywhere; }
   /* updates: one card per package (name and source, then old → new) instead of four columns */
   table.updates, table.updates tbody { display: block; min-width: 0; }

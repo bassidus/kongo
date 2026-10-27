@@ -48,6 +48,15 @@
       <div class="sysinfo" id="sysinfo"></div>
     </section>
 
+    <section class="panel" id="apps-panel" aria-label="Docker" hidden>
+      <div class="toolbar">
+        <h2>Docker</h2>
+        <span class="muted" id="apps-note"></span>
+        <button id="apps-all" class="btn" type="button" aria-haspopup="dialog">All containers</button>
+      </div>
+      <div class="apps" id="apps"></div>
+    </section>
+
     <section class="meters" aria-label="Performance">
       <article class="meter" data-key="cpu" style="--series: var(--c-cpu)">
         <header><div class="title"><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2.5"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9 2.5v3M15 2.5v3M9 18.5v3M15 18.5v3M2.5 9h3M2.5 15h3M18.5 9h3M18.5 15h3"/></svg></span><h2>CPU</h2></div><span class="value" id="v-cpu">—</span></header>

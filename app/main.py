@@ -388,6 +388,14 @@ class Sampler:
             "images": i is not None,
         }
 
+    def _apps(self) -> list[dict] | None:
+        # The containers that serve a web page, for the Docker panel's cards (webui.py finds them)
+        if self.images is None:
+            return None
+        rows = [c for c in self.images["containers"] if c["web"]]
+        return [{"name": c["name"], "web": c["web"], "update": c["status"] in ("pull", "recreate")}
+                for c in sorted(rows, key=lambda c: c["name"])]
+
     def _collect_procs(self) -> tuple[list[dict], dict[str, dict]]:
         now = time.monotonic()
         dt = max(now - self._proc_t, 1e-3)
@@ -582,6 +590,7 @@ class Sampler:
             "filesystems": self._filesystems(),
             "system": self._system(),
             "updates": self._updates_summary(),
+            "apps": self._apps(),
             "procs": procs,
             "groups": groups,
         }
@@ -769,7 +778,7 @@ async def updates_list() -> JSONResponse:
 
 @app.get("/api/containers")
 async def containers_list() -> JSONResponse:
-    # Every running container and whether its image has a newer version (the Docker tile's popup)
+    # Every running container and whether its image has a newer version (the Docker panel's popup)
     if sampler.images is None:
         return JSONResponse(None)
     users = await asyncio.to_thread(admin.admin_users) if admin.available() else []

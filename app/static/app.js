@@ -249,51 +249,78 @@ const SYS_ICONS = {
   home: '<path d="M3 11l9-7 9 7"/><path d="M5.5 9.5V20h13V9.5M10 20v-5h4v5"/>',
   globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.5 3.5 5.5 3.5 9s-1 6.5-3.5 9c-2.5-2.5-3.5-5.5-3.5-9s1-6.5 3.5-9z"/>',
   gateway: '<rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 16.5h.01M11 16.5h.01M17 13V8M14.5 5.5a3.5 3.5 0 0 1 5 0"/>',
-  box: '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/>',
+  mac: '<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M7 10h4M7 14h7M15.5 10h1.5M15.5 14h1.5"/>',
 };
 
-function renderSystem(s, upd) {
+function renderSystem(s) {
   const temp = s.cpu_temp;
-  // [label, value, sub, icon, colour token, extra class, aside]; colours follow the meters where a row matches one.
-  // The aside sits at the right end of the row: the CPU temperature
+  // colours follow the meters where a row matches one; extra is small text after the value (CPU temperature, architecture)
   const groups = [
-    ["Machine", [
-      ["Motherboard", s.machine || "—", "", "machine", "--c-disk-r"],
-      ["CPU", s.cpu_model,
-        [`${s.cores} cores · ${s.threads} threads`, s.cpu_freq && `${fmtGHz(s.cpu_freq)} now`, s.cpu_base && `${s.cpu_base} base`].filter(Boolean).join(" · "),
-        "cpu", "--c-cpu", temp?.high && temp.current >= temp.high ? "crit" : "",
-        temp && { text: `${Math.round(temp.current)} °C`, title: temp.high ? `CPU temperature · high ${Math.round(temp.high)} °C` : "CPU temperature" }],
-      ["RAM", fmtBytes(s.mem_total), `Swap ${fmtBytes(s.swap_total)}`, "mem", "--c-mem"],
-      ["Storage", `${s.disks.length} disks · ${fmtBytes(s.disks.reduce((t, d) => t + d.size, 0))}`,
-        s.disks.map((d) => `${d.name} ${fmtBytes(d.size, 0)} ${d.kind}`).join(" · "), "disk", "--c-disk-r"],
+    // the values say what they are, so this group shows no labels (they stay for screen readers)
+    ["Machine", "nolabel", [
+      { label: "Motherboard", value: s.machine || "—", icon: "machine", color: "--c-disk-r" },
+      { label: "CPU", value: s.cpu_model, icon: "cpu", color: "--c-cpu",
+        sub: [`${s.cores} cores · ${s.threads} threads`, s.cpu_freq && `${fmtGHz(s.cpu_freq)} now`, s.cpu_base && `${s.cpu_base} base`].filter(Boolean).join(" · "),
+        extra: temp && `(${Math.round(temp.current)} °C)`, extraTitle: temp?.high ? `CPU temperature · high ${Math.round(temp.high)} °C` : "CPU temperature",
+        cls: temp?.high && temp.current >= temp.high ? "crit" : "" },
+      { label: "RAM", value: fmtBytes(s.mem_total), title: `Swap ${fmtBytes(s.swap_total)}`, icon: "mem", color: "--c-mem" },
+      { label: "Storage", value: `${s.disks.length} disks · ${fmtBytes(s.disks.reduce((t, d) => t + d.size, 0))}`,
+        title: s.disks.map((d) => `${d.name} ${fmtBytes(d.size, 0)} ${d.kind}`).join(" · "), icon: "disk", color: "--c-disk-r" },
     ]],
-    ["Network", [
-      ["NIC", s.nics.map((n) => n.speed > 0 ? `${n.name} · ${fmtSpeed(n.speed)}` : n.name).join(", ") || "—", s.nics.map((n) => n.mac).join(", "), "net", "--c-net-in"],
-      ["Public IP", s.public_ip || (s.public_ip_enabled ? "Looking up…" : "Off"), s.public_ip_enabled ? "Checked every 30 min" : "", "globe", "--c-net-out"],
-      ["Private IP", s.private_ips.join(", ") || "—", "", "home", "--c-net-in"],
-      ["Gateway", s.gateway || "—", "", "gateway", "--c-net-in"],
+    ["Network", "", [
+      { label: "Interface", value: s.nics.map((n) => n.speed > 0 ? `${n.name} · ${fmtSpeed(n.speed)}` : n.name).join(", ") || "—", icon: "net", color: "--c-net-in" },
+      { label: "MAC", value: s.nics.map((n) => n.mac).join(", ") || "—", icon: "mac", color: "--c-net-out" },
+      { label: "Public IP", value: s.public_ip || (s.public_ip_enabled ? "Looking up…" : "Off"), title: s.public_ip_enabled ? "Checked every 30 min" : "", icon: "globe", color: "--c-net-out" },
+      { label: "Private IP", value: s.private_ips.join(", ") || "—", icon: "home", color: "--c-net-in" },
+      { label: "Gateway", value: s.gateway || "—", icon: "gateway", color: "--c-net-in" },
     ]],
-    ["Software", [
-      ["OS", s.os, s.arch, "os", "--c-net-out"],
-      ["Kernel", s.kernel, "", "kernel", "--c-net-out"],
-      // clickable when the container check runs: it opens the list of containers
-      ["Docker", `${s.containers} containers running`,
-        upd?.images ? (upd.containers ? `${upd.containers} update${upd.containers === 1 ? "" : "s"} available` : "All images up to date") : "",
-        "box", "--c-cpu", upd?.images ? "clickable" + (upd.containers ? " warn" : "") : ""],
+    ["Software", "", [
+      { label: "OS", value: s.os, extra: s.arch, icon: "os", color: "--c-net-out" },
+      { label: "Kernel", value: s.kernel, icon: "kernel", color: "--c-net-out" },
     ]],
   ];
-  const row = ([label, value, sub, icon, color, cls, aside]) => `
-    <div class="${cls || ""}" style="--series: var(${color})" data-tile="${icon}"${cls?.includes("clickable") ? ' role="button" tabindex="0"' : ""}>
-      <dt><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${SYS_ICONS[icon]}</svg></span>${esc(label)}</dt>
-      <dd title="${esc(value)}">${esc(value)}</dd>
-      ${aside ? `<dd class="aside" title="${esc(aside.title)}">${esc(aside.text)}</dd>` : ""}
-      ${sub ? `<dd class="sub2" title="${esc(sub)}">${esc(sub)}</dd>` : ""}
+  const row = (r) => `
+    <div class="${r.cls || ""}" style="--series: var(${r.color})">
+      <dt><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${SYS_ICONS[r.icon]}</svg></span><span class="label">${esc(r.label)}</span></dt>
+      <dd title="${esc(r.title || r.value)}">${esc(r.value)}${r.extra ? ` <span class="extra" title="${esc(r.extraTitle || "")}">${esc(r.extra)}</span>` : ""}</dd>
+      ${r.sub ? `<dd class="sub2" title="${esc(r.sub)}">${esc(r.sub)}</dd>` : ""}
     </div>`;
-  $("sysinfo").innerHTML = groups.map(([title, rows]) => `
-    <section class="sysgroup" aria-label="${title}">
+  $("sysinfo").innerHTML = groups.map(([title, cls, rows]) => `
+    <section class="sysgroup ${cls}" aria-label="${title}">
       <h3>${title}</h3>
       <dl>${rows.map(row).join("")}</dl>
     </section>`).join("");
+}
+
+// ---------- docker: containers with a web page ----------
+
+const APP_COLORS = ["--c-cpu", "--c-mem", "--c-disk-r", "--c-disk-w", "--c-net-in", "--c-net-out"];
+// a container keeps its colour however the list changes
+const appColor = (name) => APP_COLORS[[...name].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7) % APP_COLORS.length];
+let appsKey = "";
+
+// one card per web page; a container with several gets one per port
+function renderApps(s, upd, apps) {
+  $("apps-panel").hidden = !apps;
+  if (!apps) return;
+  $("apps-note").textContent = [
+    `${s.containers} container${s.containers === 1 ? "" : "s"} running`,
+    upd?.containers ? `${upd.containers} update${upd.containers === 1 ? "" : "s"} available` : "all images up to date",
+  ].join(" · ");
+  $("apps-note").classList.toggle("warn", !!upd?.containers);
+  const key = JSON.stringify(apps);
+  if (key === appsKey) return;  // rebuilt only on a change, so a hovered or focused card stays as it is
+  appsKey = key;
+  const cards = apps.flatMap((a) => a.web.map((w) => ({ ...a, w })));
+  $("apps").innerHTML = cards.length ? cards.map((c) => `
+    <a class="app" href="${esc(webUrl(c.w))}" target="_blank" rel="noopener noreferrer" style="--series: var(${appColor(c.name)})" title="Open ${esc(webUrl(c.w))}">
+      <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${SYS_ICONS.globe}</svg></span>
+      <span class="app-text">
+        <span class="app-name">${esc(c.name)}</span>
+        <span class="app-url"><span class="app-host">${c.w.scheme === "https" ? "https://" : ""}${esc(location.hostname)}</span>:${c.w.port}${c.update ? ' · <b>update available</b>' : ""}</span>
+      </span>
+      <span class="app-go" aria-hidden="true">↗</span>
+    </a>`).join("") : `<p class="muted apps-empty">No container serves a web page.</p>`;
 }
 
 // ---------- package updates ----------
@@ -657,7 +684,7 @@ function renderJob(j) {
   return wait;
 }
 
-// ---------- docker containers (the Docker row) ----------
+// ---------- docker containers (the Docker panel's All containers) ----------
 
 const dockerDlg = $("docker-dialog");
 // [label, title, cell class]; the ones that need something are worded as in the updates popup
@@ -730,15 +757,7 @@ function openContainers() {
   dockerDlg.showModal();
 }
 
-$("sysinfo").addEventListener("click", (e) => {
-  if (e.target.closest('[data-tile="box"].clickable')) openContainers();
-});
-$("sysinfo").addEventListener("keydown", (e) => {
-  if ((e.key === "Enter" || e.key === " ") && e.target.matches('[data-tile="box"].clickable')) {
-    e.preventDefault();
-    openContainers();
-  }
-});
+$("apps-all").addEventListener("click", openContainers);
 dockerDlg.addEventListener("click", (e) => { if (e.target === dockerDlg) dockerDlg.close(); });
 dockerDlg.addEventListener("close", () => { clearTimeout(jobTimer); closeAdminForm(); });
 
@@ -966,7 +985,7 @@ function connect() {
     if (history.length > HISTORY) history = history.slice(-HISTORY);
     renderMeters(msg);
     restartTick(msg.host);
-    if (msg.system) { renderSystem(msg.system, msg.updates); refreshContainers(msg.system, msg.updates); }
+    if (msg.system) { renderSystem(msg.system); renderApps(msg.system, msg.updates, msg.apps); refreshContainers(msg.system, msg.updates); }
     renderUpdatesBadge(msg.updates);
     if (msg.filesystems) renderFilesystems(msg.filesystems);
     if (msg.containers) { lastContainers = msg.containers; renderContainers(msg.containers); }
