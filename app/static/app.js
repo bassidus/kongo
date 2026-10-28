@@ -42,6 +42,7 @@ class Chart {
     this.color = color;
     this.percent = percent;
     this.values = [];
+    this.layers = null;
     this.hover = null;
 
     new ResizeObserver(() => this.draw()).observe(this.wrap);
@@ -54,7 +55,19 @@ class Chart {
     this.canvas.addEventListener("pointerleave", () => { this.hover = null; this.draw(); });
   }
 
-  set(values) { this.values = values.slice(-HISTORY); this.draw(); }
+  // layers: [{name, color, values}] stacked under the total, or null for one plain series
+  set(values, layers = null) {
+    this.values = values.slice(-HISTORY);
+    this.layers = layers && layers.length > 1 ? layers.map((l) => ({ ...l, values: l.values.slice(-HISTORY) })) : null;
+    this.draw();
+  }
+
+  // colour of the highest layer that has a value at sample i, which is the one the total sits on
+  topColor(i) {
+    if (!this.layers) return cssVar(this.color);
+    const top = this.layers.findLast((l) => l.values[i] > 0) || this.layers[0];
+    return cssVar(top.color);
+  }
 
   fmt(v) { return this.percent ? fmtPct(v) : fmtRate(v); }
 
@@ -94,22 +107,61 @@ class Chart {
 
     // newest sample sits at the right edge
     const off = HISTORY - this.values.length;
-    if (this.values.length > 1) {
+    // smooth line: quadratic curves through the midpoints, which never overshoot the samples
+    const trace = (pts, join = false) => {
+      ctx[join ? "lineTo" : "moveTo"](...pts[0]);
+      for (let i = 1; i < pts.length - 1; i++) {
+        ctx.quadraticCurveTo(...pts[i], (pts[i][0] + pts[i + 1][0]) / 2, (pts[i][1] + pts[i + 1][1]) / 2);
+      }
+      ctx.lineTo(...pts[pts.length - 1]);
+    };
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    if (this.layers && this.values.length > 1) {
+      // one band per layer on top of those below it. The smoothing weighs the same x positions for
+      // every edge, so an upper edge never dips below the one under it
+      let below = this.values.map(() => 0);
+      const bands = this.layers.map((l) => {
+        const top = below.map((b, i) => b + (l.values[i] || 0));
+        const band = {
+          color: cssVar(l.color),
+          lo: below.map((v, i) => [x(off + i), y(v)]),
+          hi: top.map((v, i) => [x(off + i), y(v)]),
+        };
+        below = top;
+        return band;
+      });
+      for (const b of bands) {
+        ctx.beginPath();
+        trace(b.hi);
+        trace(b.lo.slice().reverse(), true);
+        ctx.closePath();
+        ctx.fillStyle = withAlpha(b.color, 0.3);
+        ctx.fill();
+      }
+      // edges from the top down, so an idle layer's edge hides under the busy one below it
+      ctx.lineWidth = 2;
+      for (const b of bands.slice().reverse()) {
+        ctx.beginPath();
+        trace(b.hi);
+        ctx.strokeStyle = b.color;
+        ctx.stroke();
+      }
+      if (this.hover == null) {
+        const last = this.values.length - 1;
+        ctx.beginPath();
+        ctx.arc(x(off + last) - 3, y(below[last]), 3, 0, Math.PI * 2);
+        ctx.fillStyle = this.topColor(last);
+        ctx.fill();
+      }
+    } else if (this.values.length > 1) {
       const color = cssVar(this.color);
       const pts = this.values.map((v, i) => [x(off + i), y(v)]);
-      // smooth line: quadratic curves through the midpoints, which never overshoot the samples
-      const trace = () => {
-        ctx.moveTo(...pts[0]);
-        for (let i = 1; i < pts.length - 1; i++) {
-          ctx.quadraticCurveTo(...pts[i], (pts[i][0] + pts[i + 1][0]) / 2, (pts[i][1] + pts[i + 1][1]) / 2);
-        }
-        ctx.lineTo(...pts[pts.length - 1]);
-      };
       const grad = ctx.createLinearGradient(0, 0, 0, h);
       grad.addColorStop(0, withAlpha(color, 0.32));
       grad.addColorStop(1, withAlpha(color, 0));
       ctx.beginPath();
-      trace();
+      trace(pts);
       ctx.lineTo(pts[pts.length - 1][0], h);
       ctx.lineTo(pts[0][0], h);
       ctx.closePath();
@@ -117,9 +169,7 @@ class Chart {
       ctx.fill();
 
       ctx.beginPath();
-      trace();
-      ctx.lineJoin = "round";
-      ctx.lineCap = "round";
+      trace(pts);
       ctx.lineWidth = 2;
       ctx.strokeStyle = color;
       ctx.stroke();
@@ -143,7 +193,7 @@ class Chart {
       ctx.beginPath(); ctx.moveTo(hx, 0); ctx.lineTo(hx, h); ctx.stroke();
       ctx.beginPath();
       ctx.arc(hx, y(v), 4, 0, Math.PI * 2);
-      ctx.fillStyle = cssVar(this.color);
+      ctx.fillStyle = this.topColor(idx);
       ctx.fill();
       ctx.lineWidth = 2;
       ctx.strokeStyle = cssVar("--surface");
@@ -156,6 +206,17 @@ class Chart {
       const span = document.createElement("span");
       span.textContent = ago ? `${ago}s ago` : "now";
       this.tip.append(strong, span);
+      for (const l of this.layers || []) {
+        const row = document.createElement("div");
+        row.className = "row";
+        const dot = document.createElement("i");
+        dot.className = "dot";
+        dot.style.setProperty("--dot", `var(${l.color})`);
+        const val = document.createElement("b");
+        val.textContent = this.fmt(l.values[idx] || 0);
+        row.append(dot, l.name, val);
+        this.tip.append(row);
+      }
       this.tip.hidden = false;
       const tw = this.tip.offsetWidth;
       this.tip.style.left = Math.min(Math.max(0, hx - tw / 2), w - tw) + "px";
@@ -170,8 +231,8 @@ class Chart {
 const METERS = {
   cpu: { color: "--c-cpu", percent: true },
   mem: { color: "--c-mem", percent: true },
-  disk_read: { color: "--c-disk-r" },
-  disk_write: { color: "--c-disk-w" },
+  disk_read: { color: "--c-disk-r", disk: 0 },
+  disk_write: { color: "--c-disk-w", disk: 1 },
   net_in: { color: "--c-net-in" },
   net_out: { color: "--c-net-out" },
 };
@@ -183,9 +244,25 @@ let history = [];
 
 const $ = (id) => document.getElementById(id);
 
+const DISK_SLOTS = 8;
+// The layers of a disk chart (i 0 = read, 1 = write): one per disk in name order, so a disk has the
+// same colour in both charts. Past eight disks, the rest are summed on the last slot
+function diskLayers(names, i) {
+  const rate = (m, n) => m.disks?.[n]?.[i] ?? 0;
+  const own = names.length > DISK_SLOTS ? names.slice(0, DISK_SLOTS - 1) : names;
+  const layers = own.map((n, s) => ({ name: n, color: `--c-s${s + 1}`, values: history.map((m) => rate(m, n)) }));
+  const rest = names.slice(own.length);
+  if (rest.length) {
+    layers.push({ name: `${rest.length} others`, color: `--c-s${DISK_SLOTS}`,
+      values: history.map((m) => rest.reduce((t, n) => t + rate(m, n), 0)) });
+  }
+  return layers;
+}
+
 function renderMeters(tick) {
-  for (const key of Object.keys(METERS)) {
-    charts[key].set(history.map((m) => m[key]));
+  const names = Object.keys(tick.disks).sort();
+  for (const [key, opts] of Object.entries(METERS)) {
+    charts[key].set(history.map((m) => m[key]), opts.disk == null ? null : diskLayers(names, opts.disk));
     $("v-" + key).textContent = charts[key].fmt(tick.metrics[key]);
   }
 
@@ -216,9 +293,17 @@ function renderMeters(tick) {
 
   // non-breaking spaces keep each "name value" pair on one line when the text wraps
   const pair = (...parts) => parts.join("\u00a0");
-  const names = Object.keys(disks).sort();
-  $("s-disk_read").textContent = names.map((n) => pair(n, fmtRate(disks[n].read))).join(" · ");
-  $("s-disk_write").textContent = names.map((n) => pair(n, fmtRate(disks[n].write))).join(" · ");
+  // with several disks the line under the chart is its legend, a dot in each disk's colour
+  for (const [key, field] of [["disk_read", "read"], ["disk_write", "write"]]) {
+    const { layers } = charts[key];
+    $("s-" + key).classList.toggle("legend", !!layers);
+    if (layers) {
+      $("s-" + key).innerHTML = layers.map((l) =>
+        `<span class="item"><i class="dot" style="--dot: var(${l.color})"></i>${esc(pair(l.name, fmtRate(l.values.at(-1))))}</span>`).join("");
+    } else {
+      $("s-" + key).textContent = names.map((n) => pair(n, fmtRate(disks[n][field]))).join(" · ");
+    }
+  }
 
   const nics = Object.keys(ifaces).sort();
   $("s-net_in").textContent = nics.map((n) => `${n} · ${fmtBytes(ifaces[n].rx_total)} total`).join("  ");
@@ -252,44 +337,60 @@ const SYS_ICONS = {
   mac: '<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M7 10h4M7 14h7M15.5 10h1.5M15.5 14h1.5"/>',
 };
 
+let sysRows = [];
+
 function renderSystem(s) {
   const temp = s.cpu_temp;
-  // colours follow the meters where a row matches one; extra is small text after the value (CPU temperature, architecture)
+  // modules with the same size, type and speed counted together: "2 × 8 GB DDR3 1600 MT/s"
+  const modCount = new Map();
+  for (const m of s.mem_modules || []) {
+    const k = [fmtBytes(m.size, 0), m.type, m.speed && `${m.speed} MT/s`].filter(Boolean).join(" ");
+    modCount.set(k, (modCount.get(k) || 0) + 1);
+  }
+  const mods = [...modCount].map(([k, n]) => `${n} × ${k}`);
+  // colours follow the meters where a row matches one; extra is small text after the value (CPU temperature,
+  // architecture, RAM type), sub is the details after it
   const groups = [
-    // the values say what they are, so this group shows no labels (they stay for screen readers)
-    ["Machine", "nolabel", [
+    ["Software", [
+      { label: "OS", value: s.os, extra: s.arch, icon: "os", color: "--c-net-out" },
+      { label: "Kernel", value: s.kernel, icon: "kernel", color: "--c-net-out" },
+    ]],
+    ["Machine", [
       { label: "Motherboard", value: s.machine || "—", icon: "machine", color: "--c-disk-r" },
       { label: "CPU", value: s.cpu_model, icon: "cpu", color: "--c-cpu",
         sub: [`${s.cores} cores · ${s.threads} threads`, s.cpu_freq && `${fmtGHz(s.cpu_freq)} now`, s.cpu_base && `${s.cpu_base} base`].filter(Boolean).join(" · "),
         extra: temp && `(${Math.round(temp.current)} °C)`, extraTitle: temp?.high ? `CPU temperature · high ${Math.round(temp.high)} °C` : "CPU temperature",
         cls: temp?.high && temp.current >= temp.high ? "crit" : "" },
-      { label: "RAM", value: fmtBytes(s.mem_total), title: `Swap ${fmtBytes(s.swap_total)}`, icon: "mem", color: "--c-mem" },
-      { label: "Storage", value: `${s.disks.length} disks · ${fmtBytes(s.disks.reduce((t, d) => t + d.size, 0))}`,
-        title: s.disks.map((d) => `${d.name} ${fmtBytes(d.size, 0)} ${d.kind}`).join(" · "), icon: "disk", color: "--c-disk-r" },
+      { label: "RAM", value: fmtBytes(s.mem_total), extra: [...new Set((s.mem_modules || []).map((m) => m.type).filter(Boolean))].join(", "),
+        title: [...mods, `Swap ${fmtBytes(s.swap_total)}`].join(" · "), icon: "mem", color: "--c-mem" },
     ]],
-    ["Network", "", [
+    ["Network", [
       { label: "Interface", value: s.nics.map((n) => n.speed > 0 ? `${n.name} · ${fmtSpeed(n.speed)}` : n.name).join(", ") || "—", icon: "net", color: "--c-net-in" },
       { label: "MAC", value: s.nics.map((n) => n.mac).join(", ") || "—", icon: "mac", color: "--c-net-out" },
       { label: "Public IP", value: s.public_ip || (s.public_ip_enabled ? "Looking up…" : "Off"), title: s.public_ip_enabled ? "Checked every 30 min" : "", icon: "globe", color: "--c-net-out" },
       { label: "Private IP", value: s.private_ips.join(", ") || "—", icon: "home", color: "--c-net-in" },
       { label: "Gateway", value: s.gateway || "—", icon: "gateway", color: "--c-net-in" },
     ]],
-    ["Software", "", [
-      { label: "OS", value: s.os, extra: s.arch, icon: "os", color: "--c-net-out" },
-      { label: "Kernel", value: s.kernel, icon: "kernel", color: "--c-net-out" },
-    ]],
   ];
   const row = (r) => `
     <div class="${r.cls || ""}" style="--series: var(${r.color})">
       <dt><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${SYS_ICONS[r.icon]}</svg></span><span class="label">${esc(r.label)}</span></dt>
-      <dd title="${esc(r.title || r.value)}">${esc(r.value)}${r.extra ? ` <span class="extra" title="${esc(r.extraTitle || "")}">${esc(r.extra)}</span>` : ""}</dd>
-      ${r.sub ? `<dd class="sub2" title="${esc(r.sub)}">${esc(r.sub)}</dd>` : ""}
+      <dd title="${esc(r.title || r.value)}">${esc(r.value)}${r.extra ? ` <span class="extra" title="${esc(r.extraTitle || "")}">${esc(r.extra)}</span>` : ""}${r.sub ? ` <span class="sub2">${esc(r.sub)}</span>` : ""}</dd>
     </div>`;
-  $("sysinfo").innerHTML = groups.map(([title, cls, rows]) => `
-    <section class="sysgroup ${cls}" aria-label="${title}">
-      <h3>${title}</h3>
-      <dl>${rows.map(row).join("")}</dl>
-    </section>`).join("");
+  // only the rows that changed are replaced, so a tooltip on a row stays up while the CPU row ticks
+  const rows = groups.flatMap(([, rs]) => rs.map(row));
+  const els = $("sysinfo").querySelectorAll("dl > div");
+  if (els.length === rows.length && rows.length === sysRows.length) {
+    rows.forEach((html, i) => { if (html !== sysRows[i]) els[i].outerHTML = html; });
+  } else {
+    let i = 0;
+    $("sysinfo").innerHTML = groups.map(([title, rs]) => `
+      <section class="sysgroup" aria-label="${title}">
+        <h3>${title}</h3>
+        <dl>${rs.map(() => rows[i++]).join("")}</dl>
+      </section>`).join("");
+  }
+  sysRows = rows;
 }
 
 // ---------- docker: containers with a web page ----------
@@ -769,10 +870,27 @@ function refreshContainers(s, upd) {
   dockerKey = key;
 }
 
-// ---------- filesystems ----------
+// ---------- filesystems (the Storage button in the top bar) ----------
 
+const fsDlg = $("fs-dialog");
+let fsList = [];
 // duf's colour thresholds: yellow from 50 %, red from 90 %
 const fsLevel = (pct) => (pct >= 90 ? "crit" : pct >= 50 ? "warn" : "ok");
+
+// the button says how much storage there is, and turns red with what is full when a filesystem reaches 90 %
+function renderStorageBtn(s, fs) {
+  const full = fs.map((f) => ({ ...f, pct: (f.used / f.size) * 100 })).filter((f) => f.pct >= 90);
+  const btn = $("fs-open");
+  btn.classList.toggle("crit", full.length > 0);
+  $("fs-open-text").textContent = full.length
+    ? `Storage · ${full.length > 1 ? `${full.length} filesystems` : full[0].mount} ${full.length > 1 ? "≥ 90" : Math.floor(full[0].pct)} % full`
+    : "Storage";
+  btn.title = [
+    `${s.disks.length} disks · ${fmtBytes(s.disks.reduce((t, d) => t + d.size, 0))}`,
+    ...s.disks.map((d) => `${d.name} ${fmtBytes(d.size, 0)} ${d.kind}`),
+    ...full.map((f) => `${f.mount} ${f.pct.toFixed(1)} % full`),
+  ].join("\n");
+}
 
 function renderFilesystems(list) {
   const html = [];
@@ -784,7 +902,7 @@ function renderFilesystems(list) {
       const pct = (f.used / f.size) * 100;
       html.push(`
         <tr>
-          <td class="name" title="${esc(f.mount)}">${esc(f.mount)}</td>
+          <td class="name" title="${esc(`${f.mount} · ${f.device}`)}">${esc(f.mount)}</td>
           <td class="num">${fmtBytes(f.size)}</td>
           <td class="num">${fmtBytes(f.used)}</td>
           <td class="num">${fmtBytes(f.avail)}</td>
@@ -797,23 +915,74 @@ function renderFilesystems(list) {
   $("fs-body").innerHTML = html.join("");
 }
 
+const sysDlg = $("sys-dialog");
+$("sys-open").addEventListener("click", () => sysDlg.showModal());
+sysDlg.addEventListener("click", (e) => { if (e.target === sysDlg) sysDlg.close(); });
+
+$("fs-open").addEventListener("click", () => {
+  renderFilesystems(fsList);
+  fsDlg.showModal();
+});
+fsDlg.addEventListener("click", (e) => { if (e.target === fsDlg) fsDlg.close(); });
+
 // ---------- network by container ----------
 
-const NETC_TOP = 6;
+// The busiest (the rows that come with a hist) get a card with In and Out graphs; Show all lists the rest
+const NETC_DIRS = [["In", "--c-net-in", "rx"], ["Out", "--c-net-out", "tx"]];
+const NETC_ICON = '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/>';
+const netcCards = [];
 let netcAll = false;
+
+// built once and reused, so a card's charts keep their size and hover
+function netcCard() {
+  const el = document.createElement("article");
+  el.className = "netc-card";
+  el.innerHTML = `
+    <header><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${NETC_ICON}</svg></span><h3></h3></header>
+    <div class="netc-pair">${NETC_DIRS.map(([label, color]) => `
+      <div class="netc-dir" style="--series: var(${color})">
+        <div class="netc-head"><span>${label}</span><b></b></div>
+        <div class="chart"><canvas></canvas><span class="scale"></span><div class="tip" hidden></div></div>
+        <div class="sub"></div>
+      </div>`).join("")}
+    </div>`;
+  $("netc-graphs").append(el);
+  const dirs = [...el.querySelectorAll(".netc-dir")];
+  return { el, name: null, dirs, charts: dirs.map((d, i) => new Chart(d, { color: NETC_DIRS[i][1] })) };
+}
 
 function renderContainers(list) {
   const rows = list.slice().sort((a, b) => b.rx_avg + b.tx_avg - (a.rx_avg + a.tx_avg) || a.name.localeCompare(b.name));
-  const shown = netcAll ? rows : rows.slice(0, NETC_TOP);
+  const top = rows.filter((c) => c.hist);
+  const rest = rows.filter((c) => !c.hist);
+  while (netcCards.length < top.length) netcCards.push(netcCard());
+  // a container keeps its card while it stays among the busiest, so the graphs don't swap places
+  const free = netcCards.filter((k) => !top.some((c) => c.name === k.name));
+  for (const c of top) {
+    const card = netcCards.find((k) => k.name === c.name) || free.shift();
+    card.name = c.name;
+    card.el.style.setProperty("--series", `var(${appColor(c.name)})`);
+    const h3 = card.el.querySelector("h3");
+    h3.textContent = h3.title = c.name;
+    NETC_DIRS.forEach(([, , key], i) => {
+      card.charts[i].set(c.hist[i]);
+      card.dirs[i].querySelector("b").textContent = fmtRate(c[key]);
+      card.dirs[i].querySelector(".sub").textContent = `60 s avg ${fmtRate(c[key + "_avg"])}`;
+    });
+  }
+  for (const k of netcCards) k.el.hidden = !top.some((c) => c.name === k.name);
+  $("netc-note").textContent = rows.length ? "The busiest by 60 s average" : "No container has a network of its own";
+
   const cell = (v) => `<td class="num${v >= 1 ? "" : " dim"}">${fmtRate(v)}</td>`;
-  $("netc-body").innerHTML = shown.map((c) => `
+  $("netc-body").innerHTML = rest.map((c) => `
     <tr>
       <td class="name" title="${esc(c.name)}">${esc(c.name)}</td>
       ${cell(c.rx)}${cell(c.tx)}${cell(c.rx_avg)}${cell(c.tx_avg)}
     </tr>`).join("");
   const toggle = $("netc-toggle");
-  toggle.hidden = rows.length <= NETC_TOP;
-  toggle.textContent = netcAll ? "Show top " + NETC_TOP : `Show all (${rows.length})`;
+  toggle.hidden = !rest.length;
+  toggle.textContent = netcAll ? "Show less" : `Show all (${rows.length})`;
+  $("netc-rest").hidden = !netcAll || !rest.length;
 }
 
 let lastContainers = [];
@@ -986,9 +1155,10 @@ function connect() {
     if (history.length > HISTORY) history = history.slice(-HISTORY);
     renderMeters(msg);
     restartTick(msg.host);
-    if (msg.system) { renderSystem(msg.system); renderApps(msg.system, msg.updates, msg.apps); refreshContainers(msg.system, msg.updates); }
+    if (msg.filesystems) fsList = msg.filesystems;
+    if (msg.system) { renderSystem(msg.system); renderStorageBtn(msg.system, fsList); renderApps(msg.system, msg.updates, msg.apps); refreshContainers(msg.system, msg.updates); }
     renderUpdatesBadge(msg.updates);
-    if (msg.filesystems) renderFilesystems(msg.filesystems);
+    if (fsDlg.open) renderFilesystems(fsList);
     if (msg.containers) { lastContainers = msg.containers; renderContainers(msg.containers); }
     if (msg.procs && !table.paused) { table.procs = msg.procs; table.groups = msg.groups || {}; renderProcs(); }
   };
@@ -1009,6 +1179,7 @@ function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;
   themeBtn.setAttribute("aria-checked", theme === "dark");
   Object.values(charts).forEach((c) => c.draw());
+  netcCards.forEach((k) => k.charts.forEach((c) => c.draw()));
 }
 themeBtn.addEventListener("click", () => {
   const theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";

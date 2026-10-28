@@ -36,6 +36,8 @@ DISK_RE = re.compile(r"^(sd[a-z]+|vd[a-z]+|hd[a-z]+|xvd[a-z]+|nvme\d+n\d+|mmcblk
 DOCKER_DIR = Path(os.environ.get("DOCKER_CONTAINERS_DIR", "/host/docker-containers"))
 CGROUP_ID_RE = re.compile(r"docker-([0-9a-f]{64})\.scope|/docker/([0-9a-f]{64})")
 NETNS_RESCAN = 10.0
+# The busiest namespaces by 60 s average get their per-second history, for the panel's graphs
+NETC_GRAPHS = 2
 FS_RESCAN = 10.0
 # Host mounts as duf lists them: block devices and FUSE, minus boot/snap internals
 FS_SKIP_RE = re.compile(r"^/(boot|snap)(/|$)")
@@ -78,6 +80,38 @@ def short_vendor(vendor: str) -> str:
         if vendor.lower().startswith(key):
             return short
     return VENDOR_SUFFIX_RE.split(vendor, 1)[0].strip(" ,.") or vendor
+
+
+# SMBIOS memory types (type 17, byte 0x12) worth naming
+MEM_TYPES = {0x12: "DDR", 0x13: "DDR2", 0x18: "DDR3", 0x1A: "DDR4", 0x1B: "LPDDR", 0x1C: "LPDDR2",
+             0x1D: "LPDDR3", 0x1E: "LPDDR4", 0x22: "DDR5", 0x23: "LPDDR5"}
+
+
+def mem_modules() -> list[dict]:
+    # The host's DMI tables: Docker masks the container's /sys/firmware, pid 1's root doesn't. Empty slots
+    # have size 0
+    mods = []
+    for p in sorted(Path("/proc/1/root/sys/firmware/dmi/entries").glob("17-*")):
+        try:
+            raw = (p / "raw").read_bytes()
+        except OSError:
+            continue
+        if len(raw) < 0x17:
+            continue
+        size = int.from_bytes(raw[0x0C:0x0E], "little")
+        if size in (0, 0xFFFF):
+            continue
+        # MB; bit 15 means KB instead, and 0x7FFF means the size is in the extended field (MB)
+        if size == 0x7FFF and len(raw) >= 0x20:
+            mb = int.from_bytes(raw[0x1C:0x20], "little") & 0x7FFFFFFF
+        else:
+            mb = (size & 0x7FFF) / 1024 if size & 0x8000 else size
+        mods.append({
+            "size": int(mb * 2**20),
+            "type": MEM_TYPES.get(raw[0x12], ""),
+            "speed": int.from_bytes(raw[0x15:0x17], "little") or None,
+        })
+    return mods
 
 
 def physical_ifaces() -> list[str]:
@@ -221,6 +255,7 @@ class Sampler:
             self._scan_netns()
             self._netns_t = now
         rows = []
+        hists = []
         for ns, info in self._netns.items():
             try:
                 rx, tx = self._read_netdev(info["pid"])
@@ -239,7 +274,15 @@ class Sampler:
                 row["rx_avg"] = max(0, rx - rx0) / (now - t0)
                 row["tx_avg"] = max(0, tx - tx0) / (now - t0)
             rows.append(row)
-        return rows
+            hists.append(hist)
+        order = sorted(range(len(rows)), key=lambda i: (-(rows[i]["rx_avg"] + rows[i]["tx_avg"]), rows[i]["name"]))
+        for i in order[:NETC_GRAPHS]:
+            pts = list(hists[i])
+            # [[rx, ...], [tx, ...]] in bytes/s, one per second, oldest first
+            rows[i]["hist"] = [
+                [round(max(0, b[k] - a[k]) / (b[0] - a[0])) for a, b in zip(pts, pts[1:])] for k in (1, 2)
+            ]
+        return [rows[i] for i in order]
 
     def _filesystems(self) -> list[dict]:
         now = time.monotonic()
@@ -316,6 +359,7 @@ class Sampler:
             "cores": psutil.cpu_count(logical=False) or self.ncpu,
             "threads": self.ncpu,
             "mem_total": psutil.virtual_memory().total,
+            "mem_modules": mem_modules(),
             "swap_total": psutil.swap_memory().total,
             "disks": disks,
             "nics": nics,
@@ -564,6 +608,8 @@ class Sampler:
             "disk_write": sum(d["write"] for d in per_disk.values()),
             "net_in": sum(n["rx"] for n in per_if.values()),
             "net_out": sum(n["tx"] for n in per_if.values()),
+            # [read, write] per disk, so the disk charts can stack one layer per disk
+            "disks": {name: [round(d["read"]), round(d["write"])] for name, d in per_disk.items()},
         }
         self.history.append(metrics)
 

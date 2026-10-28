@@ -4,12 +4,12 @@ A live stats page for a Linux server, in the style of Windows Task Manager. It r
 
 ![Kongo in dark mode](docs/screenshot.png)
 
-- **System:** motherboard, CPU and temperature, memory, disks, network interface and MAC, public and private IP, gateway, OS and kernel
+- **System info:** a popup from the top bar with OS and kernel, motherboard, CPU and temperature, memory and its type, disks, network interface and MAC, public and private IP and gateway
 - **Docker:** a card for every container with a web UI, which opens it in a new tab
 - **Package updates:** a badge next to the host name shows how many updates are available and whether a restart is needed. Click it to see the list, and to install the updates or restart the server with the password of a Linux admin user. Works with apt (Debian, Ubuntu), dnf (Fedora, RHEL, Rocky, Alma), zypper (openSUSE), pacman (Arch) and apk (Alpine).
 - **Container updates:** click **All containers** in the Docker panel to see every running container and whether its image has a newer version, in the registry or already pulled but not in use yet. The badge counts them too, and with the admin buttons on you can update them from there. Containers with a web UI get an **Open** button that opens it in a new tab.
 - **Meters:** CPU, Memory, Disk Read, Disk Write, Network In and Network Out, each with a 60-second graph
-- **Filesystems:** size, used, available and use % for each mount, like `duf`
+- **Filesystems:** size, used, available and use % for each mount, like `duf`, behind the Storage button in the top bar
 - **Network by container:** traffic for each Docker network namespace
 - **Processes:** a sortable, filterable list grouped by name, with CPU, 60-second average CPU, memory and disk I/O
 - Light and dark mode

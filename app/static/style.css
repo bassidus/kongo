@@ -35,6 +35,15 @@
   --c-disk-w: #c98500;
   --c-net-in: #d95926;
   --c-net-out: #d55181;
+  /* categorical slots in the reference order, one per disk in the disk charts */
+  --c-s1: #3987e5;
+  --c-s2: #d95926;
+  --c-s3: #199e70;
+  --c-s4: #c98500;
+  --c-s5: #d55181;
+  --c-s6: #008300;
+  --c-s7: #9085e9;
+  --c-s8: #e66767;
   --accent: #3987e5;
   --good: #0ca30c;
   --critical: #d03b3b;
@@ -67,6 +76,14 @@
     --c-disk-w: #eda100;
     --c-net-in: #eb6834;
     --c-net-out: #e87ba4;
+    --c-s1: #2a78d6;
+    --c-s2: #eb6834;
+    --c-s3: #1baf7a;
+    --c-s4: #eda100;
+    --c-s5: #e87ba4;
+    --c-s6: #008300;
+    --c-s7: #6250d6;
+    --c-s8: #e34948;
     --accent: #2a78d6;
 }
 
@@ -324,6 +341,24 @@ tr.dim-row td { color: var(--muted); }
 .theme-switch[aria-checked="true"] .moon { color: var(--c-mem); }
 .theme-switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .host-meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; }
+/* System info and Storage: pills like the meta ones, but buttons, each with an icon in its topic's colour */
+.sys-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--ink);
+  font: inherit; font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.sys-btn svg { width: 15px; height: 15px; color: var(--series); }
+.sys-btn:hover { border-color: color-mix(in srgb, var(--series) 45%, transparent); }
+/* a filesystem at 90 % or more */
+.sys-btn.crit svg { color: var(--critical); }
+.sys-btn.crit { color: color-mix(in srgb, var(--critical) 70%, var(--ink)); border-color: color-mix(in srgb, var(--critical) 45%, transparent); }
+.sys-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .host-meta div {
   display: flex; gap: 8px; align-items: baseline;
   padding: 5px 12px;
@@ -418,6 +453,20 @@ main {
 }
 .tip strong { display: block; font-size: 13px; }
 .tip span { color: var(--muted); }
+.tip .row { display: flex; align-items: center; gap: 6px; color: var(--ink-2); }
+.tip .row b { margin-left: auto; padding-left: 12px; font-weight: 600; color: var(--ink); }
+/* a series' colour sits on a dot beside its name; the text stays in ink */
+.dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: 0.05em;
+  background: var(--dot);
+}
+/* fixed columns, so a value that grows or shrinks doesn't push the other disks along */
+.sub.legend { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 2px 12px; }
+.sub .item { white-space: nowrap; }
 .sub {
   margin-top: 10px;
   font-size: 12px;
@@ -500,18 +549,15 @@ table { width: 100%; min-width: 980px; table-layout: fixed; border-collapse: col
 .w-threads { width: 84px; }
 .w-status { width: 92px; }
 .w-io-avg { width: 120px; }
-/* three groups (Machine, Network, Software), each a list of label → value rows */
+/* System info popup: three groups (Software, Machine, Network) under each other, each a list of label → value rows */
+#sys-dialog { width: min(760px, calc(100vw - 32px)); }
 .sysinfo {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   padding: 16px 18px 18px;
+  min-height: 0;
+  overflow: auto;
 }
-@media (max-width: 1100px) {
-  .sysinfo { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .sysgroup:last-child { grid-column: 1 / -1; }
-}
-@media (max-width: 700px) { .sysinfo { grid-template-columns: minmax(0, 1fr); } }
 .sysgroup {
   min-width: 0;
   padding: 12px 14px 6px;
@@ -528,7 +574,7 @@ table { width: 100%; min-width: 980px; table-layout: fixed; border-collapse: col
   color: var(--muted);
 }
 .sysgroup dl { margin: 0; }
-/* a row: icon and label | value, with the sub line under the value */
+/* a row: icon and label | value */
 .sysgroup dl > div {
   display: grid;
   grid-template-columns: 124px minmax(0, 1fr);
@@ -538,9 +584,6 @@ table { width: 100%; min-width: 980px; table-layout: fixed; border-collapse: col
   border-top: 1px solid var(--grid);
 }
 .sysgroup dl > div:first-child { border-top: 0; }
-/* Machine: the values say what they are, so only the icon shows (the label stays for screen readers) */
-.sysgroup.nolabel dl > div { grid-template-columns: 24px minmax(0, 1fr); }
-.sysgroup.nolabel .label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .sysinfo dt {
   grid-row: 1;
   display: flex;
@@ -555,24 +598,12 @@ table { width: 100%; min-width: 980px; table-layout: fixed; border-collapse: col
   font-family: var(--font-display);
   font-size: 14px;
   font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
   font-variant-numeric: tabular-nums;
 }
-.sysinfo dd.sub2 {
-  grid-row: 2;
-  grid-column: 2;
-  margin-top: 2px;
-  font-family: var(--font-ui);
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--ink-2);
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-/* small text after a value: the CPU temperature, the OS's architecture */
+/* small text after a value: the CPU temperature, the OS's architecture, the RAM type; then the details (sub2) */
 .sysinfo .extra { margin-left: 6px; font-family: var(--font-ui); font-size: 12px; font-weight: 400; color: var(--ink-2); }
+.sysinfo .sub2 { margin-left: 6px; font-family: var(--font-ui); font-size: 12px; font-weight: 400; color: var(--muted); }
 .sysinfo .icon { width: 24px; height: 24px; border-radius: 7px; flex: none; }
 .sysinfo .icon svg { width: 14px; height: 14px; }
 .sysinfo .crit .extra { color: var(--critical); font-weight: 600; }
@@ -620,6 +651,37 @@ td.attn { color: color-mix(in srgb, var(--c-disk-w) 70%, var(--ink)); font-weigh
 .w-fstype { width: 120px; }
 .w-dev { width: 130px; }
 table.netc { min-width: 640px; }
+/* network by container: a card per busy namespace, with an In and an Out graph */
+.netc-graphs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 16px 18px 18px; }
+.netc-graphs:empty { display: none; }
+#netc-rest { border-top: 1px solid var(--border); }
+.netc-card {
+  min-width: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background:
+    radial-gradient(260px 110px at 0% 0%, color-mix(in srgb, var(--series) 10%, transparent), transparent 70%),
+    var(--surface-2);
+  border: 1px solid var(--border);
+}
+.netc-card[hidden] { display: none; }
+.netc-card header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; min-width: 0; }
+.netc-card .icon { width: 28px; height: 28px; border-radius: 8px; }
+.netc-card .icon svg { width: 15px; height: 15px; }
+.netc-card h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.netc-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.netc-dir { min-width: 0; }
+.netc-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 6px; font-size: 12px; color: var(--muted); }
+.netc-head b { font-family: var(--font-display); font-size: 16px; font-weight: 700; color: var(--ink); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.netc-dir .chart { height: 64px; }
+.netc-dir .sub { margin-top: 6px; }
+@media (max-width: 700px) { .netc-graphs { grid-template-columns: minmax(0, 1fr); } }
 table.fs { min-width: 880px; }
 table.netc th, table.fs th { cursor: default; }
 table.fs tbody tr:hover { background: none; }
@@ -699,14 +761,16 @@ tbody tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
   .meter .value { font-size: 19px; }
   .chart { height: 64px; }
   .sysinfo { gap: 10px; padding: 12px; }
-  .sysgroup dl > div { grid-template-columns: 96px minmax(0, 1fr); }
+  .sysgroup dl > div { grid-template-columns: 112px minmax(0, 1fr); column-gap: 8px; }
+  .sysinfo dt { gap: 6px; font-size: 12px; }
+  .sysinfo .sub2 { display: block; margin: 2px 0 0; }
+  .sys-btn { order: 2; padding: 4px 10px; }
   .apps { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 12px; gap: 8px; }
   .app { gap: 8px; padding: 9px 10px; }
   .app .icon { width: 26px; height: 26px; border-radius: 8px; }
   .app .icon svg { width: 14px; height: 14px; }
   /* only the port: the host is the one the page is open on */
   .app-go, .app-host { display: none; }
-  .sysinfo dd { white-space: normal; overflow-wrap: anywhere; }
   /* updates: one card per package (name and source, then old → new) instead of four columns */
   table.updates, table.updates tbody { display: block; min-width: 0; }
   table.updates colgroup, table.updates thead { display: none; }
@@ -728,6 +792,21 @@ tbody tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
   table.updates.docker td.web { grid-column: 1; grid-row: 4; padding: 6px 0 0; text-align: left; }
   table.updates td.act { grid-column: 2; grid-row: 4; padding: 6px 0 0; }
   table.updates td.act:empty, table.updates.docker td.web:empty { display: none; }
+  /* filesystems: one card each (mount and type, the use bar, then size, used and avail); the device is in the mount's tooltip */
+  table.fs, table.fs tbody { display: block; min-width: 0; }
+  table.fs colgroup, table.fs thead { display: none; }
+  table.fs tr { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px 10px; padding: 9px 16px; border-bottom: 1px solid var(--grid); }
+  table.fs tr.section { display: block; padding: 0; }
+  table.fs tr.section td { padding: 12px 16px 6px; }
+  table.fs td { padding: 0; border: 0; }
+  table.fs td:nth-child(1) { grid-column: 1 / 3; }
+  table.fs td:nth-child(6) { grid-column: 3; grid-row: 1; text-align: right; }
+  table.fs td:nth-child(5) { grid-column: 1 / -1; grid-row: 2; }
+  table.fs td.num { grid-row: 3; text-align: left; font-size: 12px; }
+  table.fs td:nth-child(2)::before { content: "Size "; color: var(--muted); }
+  table.fs td:nth-child(3)::before { content: "Used "; color: var(--muted); }
+  table.fs td:nth-child(4)::before { content: "Avail "; color: var(--muted); }
+  table.fs td:nth-child(7) { display: none; }
   .admin-form strong { flex-basis: 100%; }
   .admin-form input, .admin-form select { flex-basis: 100%; max-width: none; }
   .admin-form .btn:first-of-type { margin-left: auto; }
