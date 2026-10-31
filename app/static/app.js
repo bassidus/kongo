@@ -610,7 +610,7 @@ function mountAdmin(dlg) {
 }
 const dlgActions = () => activeDlg.querySelector(".admin-actions");
 const reloadActive = () => (activeDlg === dockerDlg ? loadContainers() : loadUpdates());
-// jobView: the popup shows only the Install run's output, from the click until "Back to the list"
+// jobView: the popup shows only the Install run's output, from the click until the popup is closed
 let adminEnabled = false, adminAction = null, jobTimer = null, restarting = false, jobView = false;
 // restartAt: when Restart was confirmed; restartedBack: the server came back while the popup was open
 let restartAt = 0, restartedBack = false, restartTimer = null;
@@ -651,7 +651,8 @@ for (const actions of document.querySelectorAll(".admin-actions")) {
   actions.addEventListener("click", (e) => {
     const b = e.target.closest("button[data-action]");
     if (!b || b.disabled) return;
-    if (b.dataset.action === "list") { jobView = false; reloadActive(); }
+    // after a run: opening the popup again shows the list
+    if (b.dataset.action === "close") activeDlg.close();
     else { adminTarget = null; openAdminForm(b.dataset.action); }
   });
 }
@@ -743,7 +744,7 @@ async function pollJob() {
   if (!activeDlg?.open) return;
   // undefined = Kongo is down for a moment, as when Docker itself is updated
   if (j === undefined || wait === "job") jobTimer = setTimeout(pollJob, 2000);
-  // the job view doesn't show the list; "Back to the list" loads it
+  // the job view doesn't show the list; opening the popup again loads it
   else if (wait === "list" && !jobView) jobTimer = setTimeout(reloadActive, 2000);
 }
 
@@ -787,7 +788,7 @@ function renderJob(j) {
     const a = b.dataset.action;
     const main = a === "upgrade" || a === "containers";
     // the updates popup shows Update all containers only when there is one to update
-    b.hidden = jobView ? running || main : a === "list" || (a === "containers" && !docker && !dockerPending.length);
+    b.hidden = jobView ? running || main : a === "close" || (a === "containers" && !docker && !dockerPending.length);
     b.disabled = !jobView && (running || settling || (!docker && checking) || !!nothing[a]);
     if (main) b.textContent = actionText(a);
     if (main) b.title = b.disabled && !running && !settling ? nothing[a] || "" : "";
