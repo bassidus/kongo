@@ -469,11 +469,14 @@ async function loadUpdates(u) {
   const ctrs = (u.images?.containers || []).filter((c) => c.status in CTR_STATUS);
   const ctrPending = ctrs.filter((c) => c.status !== "error").length;
   $("updates-note").textContent = [
-    `${n} package${n === 1 ? "" : "s"}`,
+    `${n} system package${n === 1 ? "" : "s"}`,
     sec && `${sec} security`,
     ctrPending && `${ctrPending} container${ctrPending === 1 ? "" : "s"}`,
+    checking && "checking for new updates…",
+  ].filter(Boolean).join(" · ");
+  $("pkg-note").textContent = [
     u.manager,
-    checking ? "checking for new updates…" : u.lists_updated && `lists updated ${fmtAgo(Date.now() / 1000 - u.lists_updated)}`,
+    !checking && u.lists_updated && `lists updated ${fmtAgo(Date.now() / 1000 - u.lists_updated)}`,
   ].filter(Boolean).join(" · ");
   const hint = $("updates-hint");
   hint.innerHTML = u.actions ? "" : "Install the updates on the server with <code></code>.";
@@ -481,6 +484,7 @@ async function loadUpdates(u) {
   adminEnabled = u.actions;
   adminUsers = u.admin_users || [];
   updatesCount = n;
+  updatesManager = u.manager;
   updatesReboot = u.reboot;
   updatesChecked = u.checked;
   imagesChecked = u.images?.checked ?? Infinity;
@@ -524,6 +528,8 @@ const CTR_STATUS = {
 
 function renderContainerUpdates(images, actions) {
   const list = (images?.containers || []).filter((c) => c.status in CTR_STATUS);
+  // what this popup's Update all containers sends
+  dockerPending = list.filter(updatable).map((c) => c.name);
   $("ctr-section").hidden = !list.length;
   if (!list.length) return;
   const byHand = list.filter((c) => c.status !== "error" && !updatable(c)).length;
@@ -570,15 +576,29 @@ updatesDlg.addEventListener("close", () => {
 
 // ---------- install updates / restart (behind a Linux admin's password) ----------
 
+// the password form's title for Install and Update comes from actionText
 const ADMIN_ACTIONS = {
-  upgrade: { title: "Install the updates as", submit: "Install" },
+  upgrade: { submit: "Install" },
   restart: { title: "Restart the server as", submit: "Restart" },
-  containers: { title: "Update the containers as", submit: "Update" },
+  containers: { submit: "Update" },
 };
 const JOB_TEXT = {
-  packages: { title: "Install updates", running: "Installing updates…", done: "Updates installed", failed: "Installing failed", end: "Done – the updates are installed." },
-  containers: { title: "Update containers", running: "Updating containers…", done: "Containers updated", failed: "Updating failed", end: "Done – the containers are updated." },
+  packages: {
+    title: "Install system updates", running: "Installing system updates…", done: "System updates installed",
+    failed: "Installing the system updates failed", end: "Done – the system updates are installed.",
+  },
+  containers: {
+    title: "Update Docker containers", running: "Updating containers…", done: "Containers updated",
+    failed: "Updating the containers failed", end: "Done – the containers are updated.",
+  },
 };
+
+// The Install and Update all buttons say what they do and to how many, so packages and containers aren't mixed up
+function actionText(action) {
+  if (action === "upgrade") return updatesCount ? `Install ${updatesCount} system update${updatesCount === 1 ? "" : "s"}` : "Install system updates";
+  const n = dockerPending.length;
+  return n === 1 ? `Update ${dockerPending[0]}` : n ? `Update all ${n} containers` : "Update all containers";
+}
 
 // The password form and the job's log are shared by both popups: they move into the one that is open
 // adminTarget: the container whose Update button was clicked; null = Update all
@@ -595,7 +615,7 @@ let adminEnabled = false, adminAction = null, jobTimer = null, restarting = fals
 // restartAt: when Restart was confirmed; restartedBack: the server came back while the popup was open
 let restartAt = 0, restartedBack = false, restartTimer = null;
 // imagesChecked: when the containers in the updates popup were checked (Infinity without Docker)
-let updatesCount = 0, updatesReboot = null, updatesChecked = 0, imagesChecked = Infinity, checking = false, loadSeq = 0;
+let updatesCount = 0, updatesManager = null, updatesReboot = null, updatesChecked = 0, imagesChecked = Infinity, checking = false, loadSeq = 0;
 // the users on the server who may do this; with just one, only the password is asked for
 let adminUsers = [];
 const ADMIN_USER_KEY = "kongo-admin-user";
@@ -603,8 +623,9 @@ const ADMIN_USER_KEY = "kongo-admin-user";
 function openAdminForm(action) {
   adminAction = action;
   const sole = adminUsers.length === 1;
-  const title = action !== "containers" ? ADMIN_ACTIONS[action].title
-    : adminTarget ? `Update ${adminTarget} as` : `Update ${dockerPending.length === 1 ? "the container" : `all ${dockerPending.length} containers`} as`;
+  const title = action === "upgrade" ? `${actionText(action)}${updatesManager ? ` (${updatesManager})` : ""} as`
+    : action === "containers" ? `${adminTarget ? `Update ${adminTarget}` : actionText(action)} as`
+    : ADMIN_ACTIONS[action].title;
   $("admin-title").textContent = title + (sole ? " " + adminUsers[0] : "");
   const user = $("admin-user");
   let last = null;
@@ -765,8 +786,10 @@ function renderJob(j) {
   for (const b of dlgActions().querySelectorAll("button")) {
     const a = b.dataset.action;
     const main = a === "upgrade" || a === "containers";
-    b.hidden = jobView ? running || main : a === "list";
+    // the updates popup shows Update all containers only when there is one to update
+    b.hidden = jobView ? running || main : a === "list" || (a === "containers" && !docker && !dockerPending.length);
     b.disabled = !jobView && (running || settling || (!docker && checking) || !!nothing[a]);
+    if (main) b.textContent = actionText(a);
     if (main) b.title = b.disabled && !running && !settling ? nothing[a] || "" : "";
   }
   // the per-container Update buttons in both popups

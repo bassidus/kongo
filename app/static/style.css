@@ -224,7 +224,9 @@ h2 { font-size: 13px; color: var(--ink-2); font-weight: 600; letter-spacing: 0.0
 .btn.primary:hover { background: color-mix(in srgb, var(--accent) 85%, var(--ink)); }
 .btn.attn { border-color: color-mix(in srgb, var(--critical) 50%, transparent); color: color-mix(in srgb, var(--critical) 65%, var(--ink)); }
 .btn:disabled { opacity: 0.5; cursor: default; }
-.admin-actions { display: flex; gap: 8px; margin-left: auto; }
+/* the buttons name what they update, so on phones they wrap onto a second row rather than squeeze */
+.admin-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-left: auto; }
+.admin-actions .btn { white-space: nowrap; }
 .admin-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; width: 100%; font-size: 13px; }
 .admin-form input, .admin-form select {
   flex: 1 1 140px;
@@ -282,8 +284,9 @@ td.web .btn + .btn { margin-left: 4px; }
 a.btn { display: inline-block; text-decoration: none; }
 .btn.small { margin-left: 0; padding: 4px 14px; font-size: 12px; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-.ctr-section[hidden] { display: none; }
-.ctr-section h3 {
+/* System packages and Docker containers in the updates popup, each under its own heading */
+.upd-section[hidden] { display: none; }
+.upd-section h3 {
   display: flex;
   align-items: baseline;
   gap: 10px;
@@ -295,7 +298,8 @@ a.btn { display: inline-block; text-decoration: none; }
   letter-spacing: 0.06em;
   color: var(--muted);
 }
-.ctr-section h3 span { font-weight: 400; text-transform: none; letter-spacing: 0; }
+.upd-section:first-child h3 { padding-top: 12px; border-top: 0; }
+.upd-section h3 span { font-weight: 400; text-transform: none; letter-spacing: 0; }
 .table-hint { margin: 0; padding: 10px 12px 14px; font-size: 12px; }
 .table-hint:empty { display: none; }
 .table-hint code { padding: 1px 6px; border-radius: 6px; background: var(--surface-2); color: var(--ink-2); }
@@ -646,10 +650,10 @@ table { width: 100%; min-width: 980px; table-layout: fixed; border-collapse: col
 .apps-empty { margin: 0; font-size: 13px; }
 td.attn { color: color-mix(in srgb, var(--c-disk-w) 70%, var(--ink)); font-weight: 600; }
 
-.w-size { width: 88px; }
-.w-use { width: 200px; }
-.w-fstype { width: 120px; }
-.w-dev { width: 130px; }
+.w-size { width: 100px; }
+.w-use { width: 220px; }
+.w-fstype { width: 130px; }
+.w-dev { width: 150px; }
 table.netc { min-width: 640px; }
 /* network by container: a card per busy namespace, with an In and an Out graph */
 .netc-graphs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 16px 18px 18px; }
@@ -685,6 +689,17 @@ table.netc { min-width: 640px; }
 table.fs { min-width: 880px; }
 table.netc th, table.fs th { cursor: default; }
 table.fs tbody tr:hover { background: none; }
+@media (min-width: 601px) {
+  table.fs th { padding: 14px 16px 12px; }
+  table.fs td { padding: 13px 16px; }
+  table.fs th:first-child, table.fs td:first-child { padding-left: 24px; }
+  table.fs th:last-child, table.fs td:last-child { padding-right: 24px; }
+  table.fs tr.section td { padding: 22px 24px 8px; border-bottom: 0; }
+  table.fs tr.section:first-child td { padding-top: 16px; }
+  table.fs tr:has(+ tr.section) td { border-bottom: 0; }
+  table.fs .use { gap: 14px; }
+  #fs-dialog .table-wrap { padding-bottom: 10px; }
+}
 tr.section td {
   padding: 12px 12px 6px;
   font-size: 11px;
@@ -746,6 +761,8 @@ tbody tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 
 @media (max-width: 600px) {
   .topbar { padding: 12px 16px; }
+  /* a long updates badge drops under the hostname instead of widening the page */
+  .host { flex-wrap: wrap; row-gap: 8px; min-width: 0; }
   /* switch on the hostname row, meta pills on the row below */
   .top-right { display: contents; }
   .theme-switch { order: 1; }

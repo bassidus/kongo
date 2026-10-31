@@ -165,19 +165,22 @@
       </section>
     </div>
     <div class="table-wrap">
-      <table class="updates">
-        <colgroup><col><col class="w-ver"><col class="w-ver"><col class="w-src"></colgroup>
-        <thead>
-          <tr>
-            <th>Package</th>
-            <th>Installed</th>
-            <th>Available</th>
-            <th>Source</th>
-          </tr>
-        </thead>
-        <tbody id="updates-body"></tbody>
-      </table>
-      <section class="ctr-section" id="ctr-section" hidden>
+      <section class="upd-section">
+        <h3>System packages <span id="pkg-note"></span></h3>
+        <table class="updates">
+          <colgroup><col><col class="w-ver"><col class="w-ver"><col class="w-src"></colgroup>
+          <thead>
+            <tr>
+              <th>Package</th>
+              <th>Installed</th>
+              <th>Available</th>
+              <th>Source</th>
+            </tr>
+          </thead>
+          <tbody id="updates-body"></tbody>
+        </table>
+      </section>
+      <section class="upd-section" id="ctr-section" hidden>
         <h3>Docker containers <span id="ctr-note"></span></h3>
         <table class="updates ctr">
           <colgroup><col class="w-ctr"><col><col class="w-ctr-status"><col class="w-src"><col class="w-act"></colgroup>
@@ -200,7 +203,8 @@
       <div class="admin-actions" id="admin-actions" hidden>
         <button class="btn" type="button" data-action="list" hidden>Back to the list</button>
         <button class="btn" type="button" data-action="restart">Restart</button>
-        <button class="btn primary" type="button" data-action="upgrade">Install updates</button>
+        <button class="btn" type="button" data-action="containers" hidden>Update all containers</button>
+        <button class="btn primary" type="button" data-action="upgrade">Install system updates</button>
       </div>
       <form class="admin-form" id="admin-form" hidden>
         <strong id="admin-title"></strong>
@@ -241,7 +245,7 @@
       <p class="muted" id="docker-hint"></p>
       <div class="admin-actions" id="docker-actions" hidden>
         <button class="btn" type="button" data-action="list" hidden>Back to the list</button>
-        <button class="btn primary" type="button" data-action="containers">Update all</button>
+        <button class="btn primary" type="button" data-action="containers">Update all containers</button>
       </div>
     </div>
   </dialog>
