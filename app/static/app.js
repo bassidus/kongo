@@ -597,7 +597,7 @@ const JOB_TEXT = {
 function actionText(action) {
   if (action === "upgrade") return updatesCount ? `Install ${updatesCount} system update${updatesCount === 1 ? "" : "s"}` : "Install system updates";
   const n = dockerPending.length;
-  return n === 1 ? `Update ${dockerPending[0]}` : n ? `Update all ${n} containers` : "Update all containers";
+  return n === 1 ? `Update ${dockerPending[0]}` : "Update all containers";
 }
 
 // The password form and the job's log are shared by both popups: they move into the one that is open
